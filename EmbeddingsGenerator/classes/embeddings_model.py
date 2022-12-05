@@ -39,6 +39,7 @@ class EmbeddingsModel(nn.Module):
 
 
 
+
 class PainDataset(Dataset):
     def __init__(self, path, subjects=["S001"], filter=None):
         self.path = path
@@ -64,7 +65,9 @@ class PainDataset(Dataset):
         return sample, label
 
 
-#"D:\Workspace\workspace_masterarbeit\FeatureGeneration\dataset_processed\\normalized_subjects.pkl"
+
+
+
 class Trainer():
     def __init__(self, subjects_train, subjects_valid, path, valid_data_path=None, filter=None):
         self.path = path
