@@ -2,6 +2,9 @@
 features/
 dataset_processed/
 wandb/
+models/
+embeddings_datasets/
+datasets_random_forest/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
