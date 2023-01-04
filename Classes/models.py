@@ -2,7 +2,11 @@ import torch
 from torch import nn
 
 
-
+# #
+#
+# Torch model for embedding calculation. Hyperparameters to configure different architectures. 
+# 
+# #
 class EmbeddingsModel(nn.Module):
     def __init__(self, model_hyperparameter):
         super(EmbeddingsModel, self).__init__()
@@ -29,7 +33,11 @@ class EmbeddingsModel(nn.Module):
         a = self.embedding_model(a)
         return self.activation(a)
   
-
+# #
+#
+# Torch model for classification calculation. Hyperparameters to configure different architectures. 
+# 
+# #
 class ClassificationModel(nn.Module):
     def __init__(self, model_hyperparameter):
         super(ClassificationModel, self).__init__()
@@ -52,7 +60,12 @@ class ClassificationModel(nn.Module):
 
 
 
-
+# #
+#
+# Torch model for siamese model. Using a embedding and classification model.
+# Three different ways to calculate the distance between two embeddings.
+# 
+# #
 class SiameseModel(nn.Module):
     def __init__(self, embedding_model, classification_model, decision_function=0):
         super(SiameseModel, self).__init__()
@@ -60,6 +73,7 @@ class SiameseModel(nn.Module):
         self.classification_model = classification_model
         self.decision_function = decision_function
 
+        #define the distance calculation
         if self.decision_function == 0:
             self.distance = lambda a,b : torch.abs(torch.sub(a, b))
         elif self.decision_function == 1:

@@ -8,10 +8,6 @@ from scipy.io import loadmat
 
 
 
-
-
-
-
 class DatasetTimeFrameGeneratorINTENSE:
     
     def __init__(self, path, subject, saving_folder=".\\", drug_delta=5, timestamps=None):
@@ -23,6 +19,7 @@ class DatasetTimeFrameGeneratorINTENSE:
         self.fs = 512
         self.load_data()
 
+    #load data from mat files
     def load_data(self):
         self.data = loadmat(self.path+self.subject+".mat")
         self.biodata = {"cor": self.data["CORbt"].flatten(),
@@ -33,6 +30,7 @@ class DatasetTimeFrameGeneratorINTENSE:
             self.timestamps = self.data["morphin_timestamps"].flatten()
         del self.data
 
+    #generate features with the timestamps of the drug inducing
     def generate_features(self):
         starts = self.timestamps-10*self.fs
         ends = self.timestamps+5*60*self.fs+10*self.fs
@@ -61,11 +59,7 @@ class DatasetTimeFrameGeneratorINTENSE:
         ecg_features = ecg_features.drop(["Event_Onset"], axis=1)
         return pd.concat([ecg_features.reset_index(drop=True), eda_features.reset_index(drop=True), zyg_features.reset_index(drop=True), cor_features.reset_index(drop=True)], axis=1)
 
-
-
-
-
-
+    #generate emg feature from emg signal
     def generate_emg_features(self, emg, name="emg_"):
         #prepare data
         processed = nk.emg_process(emg, sampling_rate=self.fs)
@@ -76,12 +70,12 @@ class DatasetTimeFrameGeneratorINTENSE:
         emg_frequ_features = self.generate_frequence_features(epochs, name=name+"_", key="EMG_Clean")
         return pd.concat([emg_features_clean.reset_index(drop=True), emg_features_amplitude.reset_index(drop=True), emg_frequ_features.reset_index(drop=True)], axis=1)
 
-
+    #generate eda features from an eda signal
     def generate_eda_features(self, eda):
         #prepare data
         processed = nk.eda_process(eda, sampling_rate=self.fs)
         epochs = nk.epochs_create(data=processed, events = [5, 10+5*60], sampling_rate = self.fs, epochs_start = 0, epochs_end = 5)
-        
+        #geenrate features of tonic, phasic and clean signal
         eda_features_tonic = self.calculate_statistical_features(epochs, name="eda_tonic_", key="EDA_Tonic")
         eda_features_phasic = self.calculate_statistical_features(epochs, name="eda_phasic_", key="EDA_Phasic")
         eda_features_clean = self.calculate_statistical_features(epochs, name="eda_clean_", key="EDA_Clean")
@@ -90,6 +84,7 @@ class DatasetTimeFrameGeneratorINTENSE:
         analyzed_eda = analyzed_eda[["EDA_Peak_Amplitude"]]
         return pd.concat([analyzed_eda.reset_index(drop=True), generated_feature.reset_index(drop=True)], axis=1)
 
+    #geenrate ecg features of ecg signal
     def generate_ecg_features(self, ecg):
         #prepare data
         processed = nk.ecg_process(ecg, sampling_rate=self.fs)
@@ -104,7 +99,7 @@ class DatasetTimeFrameGeneratorINTENSE:
 
 
 
-     #calculate statistical features
+    #calculate statistical features
     def calculate_statistical_features(self, epochs, name="signal_", key="Signal"):
         tmp = []
         for epoch_key in epochs.keys():
@@ -162,6 +157,6 @@ class DatasetTimeFrameGeneratorINTENSE:
         col = [name+"fft_max", name+"fft_sum", name+"fft_mean", name+"fft_var", name+"fft_peak", name+"fft_skew", name+"fft_kurtosis"]
         return pd.DataFrame(data = tmp, columns=col)
 
-
+    #save features in pickle file
     def save_features(self, features):
         features.to_pickle(self.saving_folder+self.subject.split("_")[0]+".pkl")

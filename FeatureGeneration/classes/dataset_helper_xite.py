@@ -42,6 +42,7 @@ class DatasetTimeFrameGeneratorXITE:
                         "ecg": ecg,
                         "stimuli": self.biodata["stimuli"]}
 
+    #resample data if wanted
     def resample_data(self):
         ecg = nk.signal_resample(self.biodata["ecg"], sampling_rate=self.sampling_rate, desired_sampling_rate=self.downsampling_rate)
         eda = nk.signal_resample(self.biodata["eda"], sampling_rate=self.sampling_rate, desired_sampling_rate=self.downsampling_rate)
@@ -134,6 +135,7 @@ class DatasetTimeFrameGeneratorXITE:
         col = [name+"fft_max", name+"fft_sum", name+"fft_mean", name+"fft_var", name+"fft_peak", name+"fft_skew", name+"fft_kurtosis"]
         return pd.DataFrame(data = tmp, columns=col)
 
+    #generate eda features from epochs
     def generate_eda_features(self, epochs):
         eda_features_tonic = self.calculate_statistical_features(epochs, name="eda_tonic_", key="EDA_Tonic")
         eda_features_phasic = self.calculate_statistical_features(epochs, name="eda_phasic_", key="EDA_Phasic")
@@ -143,12 +145,14 @@ class DatasetTimeFrameGeneratorXITE:
         analyzed_eda = analyzed_eda[["Condition", "EDA_Peak_Amplitude"]]
         return pd.concat([analyzed_eda.reset_index(drop=True), generated_feature.reset_index(drop=True)], axis=1)
 
+    #generate emg features from epochs
     def generate_emg_features(self, epochs, name="emg_"):
         emg_features_clean = self.calculate_statistical_features(epochs, name=name+"_clean_", key="EMG_Clean")
         emg_features_amplitude = self.calculate_statistical_features(epochs, name=name+"_amplitude_", key="EMG_Amplitude")
         emg_frequ_features = self.generate_frequence_features(epochs, name=name+"_", key="EMG_Clean")
         return pd.concat([emg_features_clean.reset_index(drop=True), emg_features_amplitude.reset_index(drop=True), emg_frequ_features.reset_index(drop=True)], axis=1)
 
+    #generate ecg features from epochs
     def generate_ecg_features(self, epochs):
         ecg_features_hr = self.calculate_statistical_features(epochs, name="ecg_hr_", key="ECG_Rate")
         ecg_features_clean = self.calculate_statistical_features(epochs, name="ecg_clean_", key="ECG_Clean")
@@ -156,6 +160,7 @@ class DatasetTimeFrameGeneratorXITE:
         analyzed_ecg = analyzed_ecg.drop(["Condition", "Label", "ECG_Phase_Atrial", "ECG_Phase_Ventricular", "ECG_Quality_Mean", "Event_Onset"], axis=1)
         return pd.concat([analyzed_ecg.reset_index(drop=True), ecg_features_hr.reset_index(drop=True), ecg_features_clean.reset_index(drop=True)], axis=1)
 
+    #generate alle features
     def generate_all_features(self, epochs, pain=1, subject="S001"):
         ecg = self.generate_ecg_features(epochs["ecg"])
         zyg = self.generate_emg_features(epochs["zyg"], "zyg")
@@ -166,6 +171,7 @@ class DatasetTimeFrameGeneratorXITE:
         ecg["pain"] = pain
         return pd.concat([ecg.reset_index(drop=True), eda.reset_index(drop=True), zyg.reset_index(drop=True), cor.reset_index(drop=True)], axis=1)
 
+    #generate pain and no pain epochs
     def generate_pain_no_pain_features(self, pain=2, nopain=-4):
         epochs_pain = self.generate_epochs(pain)
         epochs_nopain = self.generate_epochs(nopain)
@@ -175,5 +181,6 @@ class DatasetTimeFrameGeneratorXITE:
         all_features = all_features_pain.append(all_features_nopain, ignore_index=True)
         return all_features
 
+    #save featues in pickle file
     def save_features(self, features):
         features.to_pickle(self.saving_folder+self.subject+".pkl")

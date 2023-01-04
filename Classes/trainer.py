@@ -14,12 +14,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set_theme()
 
-from datasets import PainDataset, SiameseDataset, SiameseDatasetWithLabels, SiameseDataset2, SiameseDatasetCombinations
+from datasets import PainDataset, SiameseDatasetWithLabels, SiameseDatasetCombinations, SiameseDatasetWithLabelsIgnoredSampleSubject
 from models import SiameseModel
 from tqdm import tqdm
 
 
-
+#all possible subjects
 all_subjects = ['S001', 'S002', 'S003', 'S004', 'S005', 'S006', 'S007', 'S008',
                 'S009', 'S010', 'S011', 'S012', 'S013', 'S014', 'S015', 'S016',
                 'S017', 'S018', 'S019', 'S020', 'S021', 'S022', 'S023', 'S024',
@@ -37,6 +37,7 @@ all_subjects = ['S001', 'S002', 'S003', 'S004', 'S005', 'S006', 'S007', 'S008',
                 'S117', 'S118', 'S119', 'S120', 'S121', 'S122', 'S123', 'S124',
                 'S125', 'S126', 'S127', 'S128', 'S129', 'S130', 'S131', 'S132',
                 'S133', 'S134']
+
 
 # #
 # 
@@ -89,11 +90,14 @@ class EmbeddingTrainer():
 
         #testing
         self.tester = testers.GlobalEmbeddingSpaceTester(accuracy_calculator=self.accuracy_calculator, data_device=self.device)
+        self.history = []
 
+
+    #get all embeddings calulcated by the model
     def get_all_embeddings(self, dataset):
         return self.tester.get_all_embeddings(dataset, self.model)
 
-
+    #train for one epoch
     def train(self, epoch):
         self.model.train()
         for batch_idx, (data, labels) in enumerate(self.train_loader):
@@ -105,19 +109,18 @@ class EmbeddingTrainer():
             loss.backward()
             self.optimizer.step()
 
-
+    #test the model tih the tester on a predefined metric
     def test(self):
         return self.tester.test(self.datasets_dic, 0, self.model, embedder_model=None, splits_to_eval=None, collate_fn=None)
 
-
+    #teh trainloop with training and testing. Log the history and add values to wandb if needed
     def trainloop(self, epochs):
-        history = []
         tmp = self.test()
-        history.append(tmp)
+        self.history.append(tmp)
         for epoch in range(1, epochs+1):
             self.train(epoch)
             tmp = self.test()
-            history.append(tmp)
+            self.history.append(tmp)
 
             if self.wandb:
                 acc = self.test_accuracy()
@@ -127,19 +130,17 @@ class EmbeddingTrainer():
                 acc = self.test_accuracy()
                 print(acc)
 
-        return history
-
-
-    def plot_history(self, history):
-        train_hist = [x["train"][self.acc_tester_metric+"_level0"] for x in history]
-        test_hist = [x["test"][self.acc_tester_metric+"_level0"] for x in history]
+    #display the history
+    def plot_history(self):
+        train_hist = [x["train"][self.acc_tester_metric+"_level0"] for x in self.history]
+        test_hist = [x["test"][self.acc_tester_metric+"_level0"] for x in self.history]
 
         plt.plot(train_hist, label="train")
         plt.plot(test_hist, label="test")
         plt.legend()
         plt.show()
 
-
+    #display the data with T-SNE
     def plot_embeddings(self, embeddings, labels):
         lower_embeddings = TSNE(n_components=2, verbose=0, perplexity=40, n_iter=300).fit_transform(embeddings)
 
@@ -158,6 +159,7 @@ class EmbeddingTrainer():
             alpha=0.6
         )
 
+    #display embeddings with or withour the embedding model
     def display_embeddings(self, use_model=True, use_pain_class_label=False):
         data = torch.tensor(self.test_dataset.data.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32).to(self.device)
         if use_model:
@@ -170,11 +172,14 @@ class EmbeddingTrainer():
             label = self.test_dataset.data["pain"]
         self.plot_embeddings(data.cpu().detach().numpy(), label)
 
+    #test accuracy on a simple random forest
     def test_accuracy(self, max_depth=20):
+        #define test data
         data_test = torch.tensor(self.test_dataset.data.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32).to(self.device)
         data_test = self.model(data_test).cpu().detach().numpy()
         label_test = self.test_dataset.data["pain"]
 
+        #define train data
         data_train = torch.tensor(self.train_dataset.data.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32).to(self.device)
         data_train = self.model(data_train).cpu().detach().numpy()
         label_train = self.train_dataset.data["pain"]
@@ -185,128 +190,18 @@ class EmbeddingTrainer():
         prediction = clf.predict(data_test)
         return np.sum(prediction == label_test)/len(label_test)
 
+
+
+
+
+
+
+
 # #
 # 
-# Trainer to Siamese Network
-#
-#  Complete model with BCE loss
-#  Using SiameseDataset => 
-#
+# Trainer to train Siamese model with a combination of the BCE loss and Triplet loss
+# 
 # #
-class SiameseTrainer():
-    def __init__(self, hyperparameters, siamese_model, device="cpu"):
-        self.hyperparameters = hyperparameters
-        
-        #parameters
-        self.path_train = self.hyperparameters["path_train"]
-        self.path_test = self.hyperparameters["path_test"]
-        self.subjects_train = self.hyperparameters["subjects_train"]
-        self.subjects_test = self.hyperparameters["subjects_test"]
-        self.learning_rate = self.hyperparameters["learning_rate"]
-        self.batch_size = self.hyperparameters["batch_size"]
-        self.batch_size_test = self.hyperparameters["batch_size_test"]
-        self.freeze_embed = self.hyperparameters["freeze_embed"]
-        self.filter = self.hyperparameters["filter"]
-        self.weight_decay = self.hyperparameters["weight_decay"]
-        if self.weight_decay is None:
-            self.weight_decay = 0
-
-
-
-        #data
-        self.train_dataset = SiameseDataset(self.path_train, subjects=self.subjects_train, filter=self.filter)
-        self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
-        self.test_dataset = SiameseDataset(self.path_test, subjects=self.subjects_test, filter=self.filter)
-        self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size_test)
-
-        #training loop
-        self.loss_func = nn.BCELoss()
-
-        #model
-        self.device = torch.device(device)
-        self.siamese_model = siamese_model.to(self.device)
-
-        if self.freeze_embed:
-            for param in self.siamese_model.embedding_model.parameters():
-                param.requires_grad = False
-
-
-        #optimizer
-        self.optimizer = optim.Adam(self.siamese_model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
-
-
-    def train(self):
-        self.siamese_model.train()
-        history_loss = []
-        history_acc = []
-
-        for anchor, pos, neg in self.train_loader:
-            anchor, pos, neg = anchor.to(self.device), pos.to(self.device), neg.to(self.device)
-            self.optimizer.zero_grad()
-
-            #prediction            
-            pred_equal = self.siamese_model(anchor, pos).flatten()   #label=0
-            pred_unequal = self.siamese_model(anchor, neg).flatten() #label=1
-
-            #accuracy
-            acc_ecual = torch.sum((pred_equal < 0.5))/len(pred_equal)
-            acc_unecual = torch.sum((pred_unequal >= 0.5))/len(pred_unequal)
-
-            #loss
-            loss1 = self.loss_func(pred_equal, torch.zeros(len(pred_equal)))
-            loss2 = self.loss_func(pred_unequal, torch.ones(len(pred_unequal)))
-            loss = 1/2*(loss1+loss2)
-            
-            #log history
-            history_acc.append(acc_ecual)
-            history_acc.append(acc_unecual)
-            history_loss.append(loss.data)
-
-            #backpropagation
-            loss.backward()
-            self.optimizer.step()
-
-        return {"loss": torch.tensor(history_loss).mean(), "acc": torch.tensor(history_acc).mean()}
-
-    def test(self):
-        self.siamese_model.eval()
-        history_loss = []
-        history_acc = []
-
-        for anchor, pos, neg in self.test_loader:
-            anchor, pos, neg = anchor.to(self.device), pos.to(self.device), neg.to(self.device)
-
-            #prediction            
-            pred_equal = self.siamese_model(anchor, pos).flatten() #label=0
-            pred_unequal = self.siamese_model(anchor, neg).flatten() #label=1
-            
-            #accuracy
-            acc_ecual = torch.sum((pred_equal < 0.5))/len(pred_equal)
-            acc_unecual = torch.sum((pred_unequal >= 0.5))/len(pred_unequal)
-
-            #loss
-            loss1 = self.loss_func(pred_equal, torch.zeros(len(pred_equal)))
-            loss2 = self.loss_func(pred_unequal, torch.ones(len(pred_unequal)))
-            loss = 1/2*(loss1+loss2)
-
-            #log history
-            history_acc.append(acc_ecual)
-            history_acc.append(acc_unecual)
-            history_loss.append(loss.data)
-
-        return {"loss": torch.tensor(history_loss).mean(), "acc": torch.tensor(history_acc).mean()}
-
-    def trainloop(self, epochs):
-        history = []
-        for epoch in range(1, epochs+1):
-            h_train = self.train()
-            h_test = self.test()
-            tmp = {"epoch":epoch, "train":h_train, "test":h_test}
-            print(tmp)
-            history.append(tmp)
-        return history
-
-
 class SiameseTrainerCombinedLoss():
     def __init__(self, hyperparameters, model_classifier, model_embedder, device="cpu", filter=None):
         self.hyperparameters = hyperparameters
@@ -321,16 +216,25 @@ class SiameseTrainerCombinedLoss():
         self.margin = self.hyperparameters["margin"]
         self.batch_size_test = self.hyperparameters["batch_size_test"]
         self.number_steps = self.hyperparameters["number_steps"]
+        self.wandb = self.hyperparameters["wandb"]
+        self.log = self.hyperparameters["log"]
+        self.dataset_ignore_sample_subject = self.hyperparameters["dataset_ignore_sample_subject"]
         self.filter = filter
         self.lambda_loss = self.hyperparameters["lambda_loss"]
         self.weight_decay = self.hyperparameters["weight_decay"]
         if self.weight_decay is None:
             self.weight_decay = 0
 
-        #data
-        self.train_dataset = SiameseDatasetWithLabels(self.path_train, subjects=self.subjects_train, filter=self.filter)
+        #define datasets
+        if self.dataset_ignore_sample_subject:
+            self.train_dataset = SiameseDatasetWithLabelsIgnoredSampleSubject(self.path_train, subjects=self.subjects_train, filter=self.filter)
+            self.test_dataset = SiameseDatasetWithLabelsIgnoredSampleSubject(self.path_test, subjects=self.subjects_test, filter=self.filter)
+        else:
+            self.train_dataset = SiameseDatasetWithLabels(self.path_train, subjects=self.subjects_train, filter=self.filter)
+            self.test_dataset = SiameseDatasetWithLabels(self.path_test, subjects=self.subjects_test, filter=self.filter)
+
+        #define dataloader
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
-        self.test_dataset = SiameseDatasetWithLabels(self.path_test, subjects=self.subjects_test, filter=self.filter)
         self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size_test)
 
         #define dataset length
@@ -338,7 +242,6 @@ class SiameseTrainerCombinedLoss():
             self.number_steps = len(self.train_loader)
         else:
             self.number_steps = min(len(self.train_loader), self.number_steps)
-
 
         #model
         self.device = torch.device(device)
@@ -369,7 +272,8 @@ class SiameseTrainerCombinedLoss():
         history_loss = []
         history_acc = []
 
-        for step, (anchor, pos, neg, label) in enumerate(tqdm(self.train_loader, total=self.number_steps)):
+        #get mini batches
+        for step, (anchor, pos, neg, label) in enumerate(tqdm(self.train_loader, total=self.number_steps, disable=not self.log)):
             anchor, pos, neg, label = anchor.to(self.device), pos.to(self.device), neg.to(self.device), label.to(self.device)
             self.optimizer.zero_grad()
 
@@ -417,7 +321,8 @@ class SiameseTrainerCombinedLoss():
         history_loss = []
         history_acc = []
 
-        for step, (anchor, pos, neg, label) in enumerate(tqdm(self.test_loader)):
+        #get mini batches
+        for step, (anchor, pos, neg, label) in enumerate(tqdm(self.test_loader, disable=not self.log)):
             anchor, pos, neg, label = anchor.to(self.device), pos.to(self.device), neg.to(self.device), label.to(self.device)
 
             #calculate embedding
@@ -435,11 +340,11 @@ class SiameseTrainerCombinedLoss():
             pred_equal = self.model_classifier(torch.abs(torch.sub(anchor, pos))).flatten() #label=0
             pred_unequal = self.model_classifier(torch.abs(torch.sub(anchor, neg))).flatten() #label=1
             
-            #accuracy
+            #accuracy calculation
             acc_ecual = torch.sum((pred_equal < 0.5))/len(pred_equal)
             acc_unecual = torch.sum((pred_unequal >= 0.5))/len(pred_unequal)
 
-            #loss
+            #loss calculation
             loss1 = self.loss_func_classification(pred_equal, torch.zeros(len(pred_equal)))
             loss2 = self.loss_func_classification(pred_unequal, torch.ones(len(pred_unequal)))
             loss_classification = 1/2*(loss1+loss2)
@@ -453,27 +358,35 @@ class SiameseTrainerCombinedLoss():
             history_loss.append(loss.data)
 
         return {"loss": torch.tensor(history_loss).mean(), "acc": torch.tensor(history_acc).mean()}
-
+    
+    #the trainloop with the training and testing phase and tracking of the history
     def trainloop(self, epochs):
         for epoch in range(1, epochs+1):
             h_train = self.train()
             h_test = self.test()
             tmp = {"epoch":epoch, "train":h_train, "test":h_test}
-            print(tmp)
+            if self.log:
+                print(tmp)
             self.history.append(tmp)
+            if self.wandb:
+                wandb.log({"accuracy": h_test.acc, "epoch": epoch})
 
+    #plot the history (loss and accuracy)
     def plot_history(self):
+        #get data for plotting
         train_loss = [x["train"]["loss"] for x in self.history]
         test_loss = [x["test"]["loss"] for x in self.history]
         train_acc = [x["train"]["acc"] for x in self.history]
         test_acc = [x["test"]["acc"] for x in self.history]
 
+        #plot loss
         plt.plot(train_loss, label="train")
         plt.plot(test_loss, label="test")
         plt.title("loss")
         plt.legend()
         plt.show()
 
+        #plot accuracy
         plt.plot(train_acc, label="train")
         plt.plot(test_acc, label="test")
         plt.title("accuracy")
@@ -481,6 +394,18 @@ class SiameseTrainerCombinedLoss():
         plt.show()
 
 
+
+
+
+
+
+
+
+# #
+# 
+# Trainer to train Siamese model
+# 
+# #
 class SiameseTrainerCombinationDataset():
     def __init__(self, hyperparameters, siamese_model, device="cpu", filter=None):
         self.hyperparameters = hyperparameters
@@ -493,6 +418,8 @@ class SiameseTrainerCombinationDataset():
         self.learning_rate = self.hyperparameters["learning_rate"]
         self.batch_size = self.hyperparameters["batch_size"]
         self.batch_size_test = self.hyperparameters["batch_size_test"]
+        self.wandb = self.hyperparameters["wandb"]
+        self.log = self.hyperparameters["log"]
         self.filter = filter
         self.number_steps = self.hyperparameters["number_steps"]
         self.weight_decay = self.hyperparameters["weight_decay"]
@@ -530,7 +457,7 @@ class SiameseTrainerCombinationDataset():
         history_loss = []
         history_acc = []
         
-        for step, (sample1, sample2, labels) in enumerate(tqdm(self.train_loader, total=self.number_steps)):
+        for step, (sample1, sample2, labels) in enumerate(tqdm(self.train_loader, total=self.number_steps, disable=not self.log)):
             sample1, sample2, labels = sample1.to(self.device), sample2.to(self.device), labels.to(self.device)
             self.optimizer.zero_grad()
 
@@ -561,7 +488,8 @@ class SiameseTrainerCombinationDataset():
         history_loss = []
         history_acc = []
 
-        for step, (sample1, sample2, labels) in enumerate(tqdm(self.test_loader)):
+        #get mini batches
+        for step, (sample1, sample2, labels) in enumerate(tqdm(self.test_loader, disable=not self.log)):
             sample1, sample2, labels = sample1.to(self.device), sample2.to(self.device), labels.to(self.device)
 
             #prediction            
@@ -579,26 +507,34 @@ class SiameseTrainerCombinationDataset():
 
         return {"loss": torch.tensor(history_loss).mean(), "acc": torch.tensor(history_acc).mean()}
 
+    #training loop with logging
     def trainloop(self, epochs):
         for epoch in range(1, epochs+1):
             h_train = self.train()
             h_test = self.test()
             tmp = {"epoch":epoch, "train":h_train, "test":h_test}
-            print(tmp)
+            if self.log:
+                print(tmp)
             self.history.append(tmp)
+            if self.wandb:
+                wandb.log({"accuracy": h_test.acc, "epoch": epoch})
 
+    #plot history
     def plot_history(self):
+        #get data for plotting
         train_loss = [x["train"]["loss"] for x in self.history]
         test_loss = [x["test"]["loss"] for x in self.history]
         train_acc = [x["train"]["acc"] for x in self.history]
         test_acc = [x["test"]["acc"] for x in self.history]
 
+        #plot loss
         plt.plot(train_loss, label="train")
         plt.plot(test_loss, label="test")
         plt.title("loss")
         plt.legend()
         plt.show()
 
+        #plot accuracy
         plt.plot(train_acc, label="train")
         plt.plot(test_acc, label="test")
         plt.title("accuracy")
