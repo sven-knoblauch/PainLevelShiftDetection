@@ -17,6 +17,7 @@ sns.set_theme()
 from datasets import PainDataset, SiameseDatasetWithLabels, SiameseDatasetCombinations, SiameseDatasetWithLabelsIgnoredSampleSubject
 from models import SiameseModel
 from tqdm import tqdm
+from IPython.display import clear_output
 
 
 #all possible subjects
@@ -365,11 +366,13 @@ class SiameseTrainerCombinedLoss():
             h_train = self.train()
             h_test = self.test()
             tmp = {"epoch":epoch, "train":h_train, "test":h_test}
-            if self.log:
-                print(tmp)
             self.history.append(tmp)
+            if self.log:
+                clear_output(wait=True)
+                for entry in self.history:
+                    print(entry)
             if self.wandb:
-                wandb.log({"accuracy": h_test.acc, "epoch": epoch})
+                wandb.log({"accuracy": h_test["acc"], "epoch": epoch})
 
     #plot the history (loss and accuracy)
     def plot_history(self):
@@ -513,9 +516,11 @@ class SiameseTrainerCombinationDataset():
             h_train = self.train()
             h_test = self.test()
             tmp = {"epoch":epoch, "train":h_train, "test":h_test}
-            if self.log:
-                print(tmp)
             self.history.append(tmp)
+            if self.log:
+                clear_output(wait=True)
+                for entry in self.history:
+                    print(entry)
             if self.wandb:
                 wandb.log({"accuracy": h_test.acc, "epoch": epoch})
 
