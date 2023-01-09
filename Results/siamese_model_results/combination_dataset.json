@@ -1,0 +1,35 @@
+[
+    {
+        "acc": 0.9263726472854614,
+        "epochs": 10,
+        "model_classifier_hyperparameter": {
+            "dropout": 0.2,
+            "layers": [
+                64,
+                32
+            ]
+        },
+        "model_embedding_hyperparameter": {
+            "dropout": 0.2,
+            "layers": [
+                207,
+                512,
+                64
+            ],
+            "sigmoid": false
+        },
+        "trainer_hyperparameter": {
+            "batch_size": 256,
+            "batch_size_test": 256,
+            "decision_function": 0,
+            "filter": null,
+            "freeze_embed": false,
+            "learning_rate": 0.001,
+            "number_steps": 200,
+            "subjects_test": [
+                "S001"
+            ],
+            "weight_decay": null
+        }
+    }
+]

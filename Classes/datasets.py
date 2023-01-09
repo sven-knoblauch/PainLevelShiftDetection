@@ -167,6 +167,57 @@ class SiameseDatasetCombinations(Dataset):
         sample2 = torch.tensor(sample2.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32)[0]
 
         #calculate label, 0 when both have the same pain label, 1 otherwise      
-        label = torch.tensor(1-label1==label2, dtype=torch.float32)
+        label = torch.tensor(1-(label1==label2), dtype=torch.float32)
 
         return sample1, sample2, label
+
+
+
+# #
+# 
+# Dataset for generating the data for training the random forest
+# 
+# #
+class CombinationDataset(Dataset):
+    def __init__(self, path, subjects=["S001"], filter=None):
+        self.path = path
+        #read data from file
+        self.data = pd.read_pickle(path)
+        self.subjects = subjects
+        #remove all dara which are not from the wanted subject list
+        self.data = self.data[self.data["subject"].isin(self.subjects)].reset_index(drop=True)
+        #filter data for example for only electric pain stimuli
+        if filter:
+            self.data = self.data[filter(self.data)].reset_index(drop=True)
+
+        #calculate indices with combinations of size 2 for each subject. and save these indices.
+        self.indices = []
+        for sub in self.subjects:
+            tmp = self.data[self.data["subject"] == sub].index
+            self.indices.extend(list(combinations(tmp, 2)))
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        #get the indices of two samples with the index on the combination list
+        indices = self.indices[idx]
+
+        #load both samples
+        sample1 = self.data.iloc[[indices[0]]].reset_index(drop=True)
+        sample2 = self.data.iloc[[indices[1]]].reset_index(drop=True)
+
+        #get the labels
+        label1 = sample1["pain"][0]
+        label2 = sample2["pain"][0]
+
+        #convert to torch tensors and remove all columns, which arent features
+        sample1 = torch.tensor(sample1.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32)[0]
+        sample2 = torch.tensor(sample2.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32)[0]
+        label1 = torch.tensor(label1, dtype=torch.float32)
+        label2 = torch.tensor(label2, dtype=torch.float32)
+
+        #calculate label, 0 when both have the same pain label, 1 otherwise      
+        label = torch.tensor(1-(label1==label2), dtype=torch.float32)
+
+        return sample1, sample2, label1, label2, label

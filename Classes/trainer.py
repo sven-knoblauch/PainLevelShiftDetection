@@ -208,8 +208,7 @@ class SiameseTrainerCombinedLoss():
         self.hyperparameters = hyperparameters
         
         #parameters
-        self.path_train = self.hyperparameters["path_train"]
-        self.path_test = self.hyperparameters["path_test"]
+        self.path = self.hyperparameters["path"]
         self.subjects_train = self.hyperparameters["subjects_train"]
         self.subjects_test = self.hyperparameters["subjects_test"]
         self.learning_rate = self.hyperparameters["learning_rate"]
@@ -228,11 +227,11 @@ class SiameseTrainerCombinedLoss():
 
         #define datasets
         if self.dataset_ignore_sample_subject:
-            self.train_dataset = SiameseDatasetWithLabelsIgnoredSampleSubject(self.path_train, subjects=self.subjects_train, filter=self.filter)
-            self.test_dataset = SiameseDatasetWithLabelsIgnoredSampleSubject(self.path_test, subjects=self.subjects_test, filter=self.filter)
+            self.train_dataset = SiameseDatasetWithLabelsIgnoredSampleSubject(self.path, subjects=self.subjects_train, filter=self.filter)
+            self.test_dataset = SiameseDatasetWithLabelsIgnoredSampleSubject(self.path, subjects=self.subjects_test, filter=self.filter)
         else:
-            self.train_dataset = SiameseDatasetWithLabels(self.path_train, subjects=self.subjects_train, filter=self.filter)
-            self.test_dataset = SiameseDatasetWithLabels(self.path_test, subjects=self.subjects_test, filter=self.filter)
+            self.train_dataset = SiameseDatasetWithLabels(self.path, subjects=self.subjects_train, filter=self.filter)
+            self.test_dataset = SiameseDatasetWithLabels(self.path, subjects=self.subjects_test, filter=self.filter)
 
         #define dataloader
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
@@ -414,8 +413,7 @@ class SiameseTrainerCombinationDataset():
         self.hyperparameters = hyperparameters
         
         #parameters
-        self.path_train = self.hyperparameters["path_train"]
-        self.path_test = self.hyperparameters["path_test"]
+        self.path = self.hyperparameters["path"]
         self.subjects_train = self.hyperparameters["subjects_train"]
         self.subjects_test = self.hyperparameters["subjects_test"]
         self.learning_rate = self.hyperparameters["learning_rate"]
@@ -431,9 +429,9 @@ class SiameseTrainerCombinationDataset():
 
 
         #data
-        self.train_dataset = SiameseDatasetCombinations(self.path_train, subjects=self.subjects_train, filter=self.filter)
+        self.train_dataset = SiameseDatasetCombinations(self.path, subjects=self.subjects_train, filter=self.filter)
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
-        self.test_dataset = SiameseDatasetCombinations(self.path_test, subjects=self.subjects_test, filter=self.filter)
+        self.test_dataset = SiameseDatasetCombinations(self.path, subjects=self.subjects_test, filter=self.filter)
         self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size_test)
 
         if self.number_steps is None:
@@ -522,7 +520,7 @@ class SiameseTrainerCombinationDataset():
                 for entry in self.history:
                     print(entry)
             if self.wandb:
-                wandb.log({"accuracy": h_test.acc, "epoch": epoch})
+                wandb.log({"accuracy": h_test["acc"], "epoch": epoch})
 
     #plot history
     def plot_history(self):
