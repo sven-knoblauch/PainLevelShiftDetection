@@ -39,6 +39,51 @@ all_subjects = ['S001', 'S002', 'S003', 'S004', 'S005', 'S006', 'S007', 'S008',
                 'S125', 'S126', 'S127', 'S128', 'S129', 'S130', 'S131', 'S132',
                 'S133', 'S134']
 
+all_subjects_intense = ['1', '10', '14', '15', '17', '19', '2', '20', '21', '23', '25',
+                        '28', '29', '3', '30', '31', '32', '33', '35', '36', '37', '38',
+                        '39', '6']
+
+# #
+# 
+# Test Accuracy with random forest (with and without embedding model)
+# 
+# #
+class AccuracyTester():
+    def __init__(self, hyperparameters, filter=None, device="cpu"):
+        self.hyperparameters = hyperparameters
+        self.filter = filter
+        self.device = device
+        self.path = self.hyperparameters["path"]
+        self.subjects_train = self.hyperparameters["subjects_train"]
+        self.subjects_test = self.hyperparameters["subjects_test"]
+
+        self.train_dataset = PainDataset(self.path, subjects=self.subjects_train, filter=self.filter)
+        self.test_dataset = PainDataset(self.path, subjects=self.subjects_test, filter=self.filter)
+        
+
+    def test_model(self, max_depth=20, model=None):
+        if model is not None:
+            model.to(self.device)
+
+        #define test data
+        data_test = torch.tensor(self.test_dataset.data.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32).to(self.device)
+        if model is not None:
+            data_test = model(data_test)
+        data_test = data_test.cpu().detach().numpy()
+        label_test = self.test_dataset.data["pain"]
+
+        #define train data
+        data_train = torch.tensor(self.train_dataset.data.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32).to(self.device)
+        if model is not None:
+            data_train = model(data_train)
+        data_train = data_train.cpu().detach().numpy()
+        label_train = self.train_dataset.data["pain"]
+
+        clf = RandomForestClassifier(max_depth=max_depth, n_estimators=400, random_state=0, n_jobs=-1)
+        clf.fit(data_train, label_train)
+        prediction = clf.predict(data_test)
+        return np.sum(prediction == label_test)/len(label_test)
+
 
 # #
 # 
@@ -46,7 +91,7 @@ all_subjects = ['S001', 'S002', 'S003', 'S004', 'S005', 'S006', 'S007', 'S008',
 # 
 # #
 class EmbeddingTrainer():
-    def __init__(self, hyperparameters, model, device="cpu"):
+    def __init__(self, hyperparameters, model, filter=None, device="cpu"):
         self.hyperparameters = hyperparameters
         
         #parameters
@@ -60,7 +105,7 @@ class EmbeddingTrainer():
         self.learning_rate = self.hyperparameters["learning_rate"]
         self.batch_size = self.hyperparameters["batch_size"]
         self.margin = self.hyperparameters["margin"]
-        self.filter = self.hyperparameters["filter"]
+        self.filter = filter
 
         if self.hyperparameters["distance"] == 0:
             self.distance = distances.CosineSimilarity()
