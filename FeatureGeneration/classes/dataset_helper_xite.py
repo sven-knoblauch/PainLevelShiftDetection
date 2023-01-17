@@ -102,17 +102,17 @@ class DatasetTimeFrameGeneratorXITE:
             chunks = list(map(np.std, np.array_split(signal, len(signal)//4)))
             singal_var_second_moment = np.mean(np.array(chunks))
             singal_variation_second_moment = np.mean((chunks-singal_var_second_moment)**2)
-            singal_var_second_moment = np.sqrt(singal_variation_second_moment)
+            singal_std_second_moment = np.sqrt(singal_variation_second_moment)
             singal_mean_val_first_diff = np.mean(signal[1:]-signal[:-1])
             singal_mean_abs_val_first_diff = np.mean(np.abs(signal[1:]-signal[:-1]))
             singal_mean_abs_val_second_diff = np.mean(np.abs(signal[2:]-signal[:-2]))
 
             tmp.append([singal_max, singal_min, singal_mean, singal_std, singal_var, singal_rms, singal_power, singal_peak, singal_p2p, singal_skew,
                         singal_kurtosis, singal_crestfactor, singal_formfactor, singal_pulseindicator, singal_var_second_moment, singal_variation_second_moment,
-                        singal_var_second_moment, singal_mean_val_first_diff, singal_mean_abs_val_first_diff, singal_mean_abs_val_second_diff])
+                        singal_std_second_moment, singal_mean_val_first_diff, singal_mean_abs_val_first_diff, singal_mean_abs_val_second_diff])
             col = [name+"max", name+"min", name+"mean", name+"std", name+"var", name+"rms", name+"power",
                                 name+"peak", name+"p2p", name+"skew", name+"kurtosis", name+"crestfactor", name+"formfactor",
-                                name+"pulseindicator", name+"var_second_moment", name+"variation_second_moment", name+"var_second_moment",
+                                name+"pulseindicator", name+"var_second_moment", name+"variation_second_moment", name+"std_second_moment",
                                 name+"mean_val_first_diff", name+"mean_abs_val_first_diff", name+"mean_abs_val_second_diff"]
 
         return pd.DataFrame(data = tmp, columns=col)
