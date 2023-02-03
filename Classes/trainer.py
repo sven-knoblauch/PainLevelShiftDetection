@@ -91,7 +91,7 @@ class AccuracyTester():
 # 
 # #
 class EmbeddingTrainer():
-    def __init__(self, hyperparameters, model, filter=None, device="cpu"):
+    def __init__(self, hyperparameters, model, filter=None, distance=None, device="cpu"):
         self.hyperparameters = hyperparameters
         
         #parameters
@@ -105,19 +105,22 @@ class EmbeddingTrainer():
         self.learning_rate = self.hyperparameters["learning_rate"]
         self.batch_size = self.hyperparameters["batch_size"]
         self.margin = self.hyperparameters["margin"]
+        self.lr_steps = self.hyperparameters["lr_steps"]
         self.filter = filter
 
-        if self.hyperparameters["distance"] == 0:
-            self.distance = distances.CosineSimilarity()
-        else:
+        if distance is None:
             self.distance = distances.LpDistance()
+        else:
+            self.distance = distance
+
+
 
 
         #data
         self.train_dataset = PainDataset(self.path_train, subjects=self.subjects_train, filter=self.filter)
-        self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
+        self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True)
         self.test_dataset = PainDataset(self.path_test, subjects=self.subjects_test, filter=self.filter)
-        self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size)
+        self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size, drop_last=True)
 
         self.datasets_dic = {"train": self.train_dataset, "test": self.test_dataset}
 
@@ -127,6 +130,7 @@ class EmbeddingTrainer():
 
         #learning objectives
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        self.lr_scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=self.lr_steps, gamma=0.5)
 
         self.distance = self.distance
         self.reducer = reducers.ThresholdReducer(low=0)
@@ -154,6 +158,7 @@ class EmbeddingTrainer():
             loss = self.loss_func(embeddings, labels, indices_tuple)
             loss.backward()
             self.optimizer.step()
+        self.lr_scheduler.step()
 
     #test the model tih the tester on a predefined metric
     def test(self):
@@ -172,7 +177,7 @@ class EmbeddingTrainer():
                 acc = self.test_accuracy()
                 wandb.log({"accuracy": acc, "epoch": epoch})
 
-            if self.acc_in_loop and epoch%5 == 0:
+            if self.acc_in_loop and epoch%2 == 0:
                 acc = self.test_accuracy()
                 print(acc)
 
@@ -231,7 +236,7 @@ class EmbeddingTrainer():
         label_train = self.train_dataset.data["pain"]
 
         #train random forest on train data and evaluate on test data
-        clf = RandomForestClassifier(max_depth=max_depth, random_state=0)
+        clf = RandomForestClassifier(max_depth=max_depth, n_estimators=400, random_state=0,  n_jobs=-1)
         clf.fit(data_train, label_train)
         prediction = clf.predict(data_test)
         return np.sum(prediction == label_test)/len(label_test)

@@ -136,7 +136,7 @@ class DatasetTimeFrameGeneratorINTENSE:
                                 name+"pulseindicator", name+"var_second_moment", name+"variation_second_moment", name+"std_second_moment",
                                 name+"mean_val_first_diff", name+"mean_abs_val_first_diff", name+"mean_abs_val_second_diff"]
 
-        return pd.DataFrame(data = tmp, columns=col)
+        return pd.DataFrame(data=tmp, columns=col)
 
 
     #generate statistical frequence features
