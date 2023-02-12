@@ -175,6 +175,50 @@ class SiameseDatasetCombinations(Dataset):
 
 # #
 # 
+# Dataset for siamese data, the triplet consists of two datapoints with the corresponding label. The label is zero if both samples have the same
+# label, for example pain. Otherwise the returning label is one. (Ignoring subjects)
+# 
+# #
+class SiameseDatasetCombinationsIgnoredSampleSubject(Dataset):
+    def __init__(self, path, subjects=["S001"], filter=None):
+        self.path = path
+        #read data from file
+        self.data = pd.read_pickle(path)
+        self.subjects = subjects
+        #remove all dara which are not from the wanted subject list
+        self.data = self.data[self.data["subject"].isin(self.subjects)].reset_index(drop=True)
+        #filter data for example for only electric pain stimuli
+        if filter:
+            self.data = self.data[filter(self.data)].reset_index(drop=True)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+
+        #load both samples
+        sample1 = self.data.iloc[[idx]].reset_index(drop=True)
+        sample2 = self.data.sample()
+        
+        #get the labels
+        label1 = sample1["pain"].values[0]
+        label2 = sample2["pain"].values[0]
+
+        #convert to torch tensors and remove all columns, which arent features
+        sample1 = torch.tensor(sample1.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32)[0]
+        sample2 = torch.tensor(sample2.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32)[0]
+
+        #calculate label, 0 when both have the same pain label, 1 otherwise      
+        label = torch.tensor(1-(label1==label2), dtype=torch.float32)
+
+        return sample1, sample2, label
+
+
+
+
+
+# #
+# 
 # Dataset for generating the data for training the random forest
 # 
 # #

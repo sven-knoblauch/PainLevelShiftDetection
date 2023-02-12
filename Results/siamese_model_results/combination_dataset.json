@@ -1,7 +1,56 @@
 [
     {
-        "acc": 0.9263726472854614,
+        "acc": 0.8162749409675598,
         "epochs": 10,
+        "model_classifier_hyperparameter": {
+            "dropout": 0.2,
+            "layers": [
+                1
+            ]
+        },
+        "model_embedding_hyperparameter": {
+            "dropout": 0.2,
+            "layers": [
+                207,
+                512,
+                64
+            ],
+            "sigmoid": false
+        },
+        "trainer_hyperparameter": {
+            "batch_size": 256,
+            "batch_size_test": 256,
+            "dataset_ignore_subject_test": false,
+            "dataset_ignore_subject_train": true,
+            "decision_function": 2,
+            "filter": [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                -1,
+                -2,
+                -3,
+                -4,
+                -5,
+                -6
+            ],
+            "freeze_embed": false,
+            "learning_rate": 0.01,
+            "lr_steps": 10,
+            "number_steps": 200,
+            "number_steps_testing": 400,
+            "subjects_test": [
+                "S001"
+            ],
+            "weight_decay": null
+        }
+    },
+    {
+        "acc": 0.8199626803398132,
+        "epochs": 44,
         "model_classifier_hyperparameter": {
             "dropout": 0.2,
             "layers": [
@@ -21,11 +70,28 @@
         "trainer_hyperparameter": {
             "batch_size": 256,
             "batch_size_test": 256,
+            "dataset_ignore_subject_test": false,
+            "dataset_ignore_subject_train": true,
             "decision_function": 0,
-            "filter": null,
+            "filter": [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                -1,
+                -2,
+                -3,
+                -4,
+                -5,
+                -6
+            ],
             "freeze_embed": false,
-            "learning_rate": 0.001,
+            "learning_rate": 0.01,
+            "lr_steps": 10,
             "number_steps": 200,
+            "number_steps_testing": 200,
             "subjects_test": [
                 "S001"
             ],

@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set_theme()
 
-from datasets import PainDataset, SiameseDatasetWithLabels, SiameseDatasetCombinations, SiameseDatasetWithLabelsIgnoredSampleSubject
+from datasets import PainDataset, SiameseDatasetWithLabels, SiameseDatasetCombinations, SiameseDatasetWithLabelsIgnoredSampleSubject, SiameseDatasetCombinationsIgnoredSampleSubject
 from models import SiameseModel
 from tqdm import tqdm
 from IPython.display import clear_output
@@ -166,9 +166,10 @@ class EmbeddingTrainer():
 
     #teh trainloop with training and testing. Log the history and add values to wandb if needed
     def trainloop(self, epochs):
+        current_epoch = len(self.history)
         tmp = self.test()
         self.history.append(tmp)
-        for epoch in range(1, epochs+1):
+        for epoch in range(1+current_epoch, epochs+1+current_epoch):
             self.train(epoch)
             tmp = self.test()
             self.history.append(tmp)
@@ -266,9 +267,12 @@ class SiameseTrainerCombinedLoss():
         self.margin = self.hyperparameters["margin"]
         self.batch_size_test = self.hyperparameters["batch_size_test"]
         self.number_steps = self.hyperparameters["number_steps"]
+        self.number_steps_testing = self.hyperparameters["number_steps_testing"]
+        self.lr_steps = self.hyperparameters["lr_steps"]
         self.wandb = self.hyperparameters["wandb"]
         self.log = self.hyperparameters["log"]
-        self.dataset_ignore_sample_subject = self.hyperparameters["dataset_ignore_sample_subject"]
+        self.dataset_ignore_sample_subject_train = self.hyperparameters["dataset_ignore_sample_subject_train"]
+        self.dataset_ignore_sample_subject_test = self.hyperparameters["dataset_ignore_sample_subject_test"]
         self.filter = filter
         self.lambda_loss = self.hyperparameters["lambda_loss"]
         self.weight_decay = self.hyperparameters["weight_decay"]
@@ -276,22 +280,32 @@ class SiameseTrainerCombinedLoss():
             self.weight_decay = 0
 
         #define datasets
-        if self.dataset_ignore_sample_subject:
+        if self.dataset_ignore_sample_subject_train:
             self.train_dataset = SiameseDatasetWithLabelsIgnoredSampleSubject(self.path, subjects=self.subjects_train, filter=self.filter)
-            self.test_dataset = SiameseDatasetWithLabelsIgnoredSampleSubject(self.path, subjects=self.subjects_test, filter=self.filter)
         else:
             self.train_dataset = SiameseDatasetWithLabels(self.path, subjects=self.subjects_train, filter=self.filter)
+
+        if self.dataset_ignore_sample_subject_test:
+            self.test_dataset = SiameseDatasetWithLabelsIgnoredSampleSubject(self.path, subjects=self.subjects_test, filter=self.filter)
+        else:
             self.test_dataset = SiameseDatasetWithLabels(self.path, subjects=self.subjects_test, filter=self.filter)
 
+        
         #define dataloader
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
-        self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size_test)
+        self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size_test, shuffle=True)
 
         #define dataset length
         if self.number_steps is None:
             self.number_steps = len(self.train_loader)
         else:
             self.number_steps = min(len(self.train_loader), self.number_steps)
+
+        #define dataset length
+        if self.number_steps_testing is None:
+            self.number_steps_testing = len(self.test_loader)
+        else:
+            self.number_steps_testing = min(len(self.test_loader), self.number_steps_testing)
 
         #model
         self.device = torch.device(device)
@@ -302,14 +316,15 @@ class SiameseTrainerCombinedLoss():
 
         #optimizer
         self.optimizer = optim.Adam(self.siamese_model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
+        self.lr_scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=self.lr_steps, gamma=0.5)
 
         #combined loss
         self.distance = distances.LpDistance()
         self.reducer = reducers.ThresholdReducer(low=0)
-        self.loss_func_embedding = losses.TripletMarginLoss(margin=self.margin, distance=self.distance, reducer=self.reducer, triplets_per_anchor="hard")
+        self.loss_func_embedding = losses.TripletMarginLoss(margin=self.margin, distance=self.distance, reducer=self.reducer, triplets_per_anchor="hard").to(self.device)
         self.mining_func = miners.TripletMarginMiner(margin=self.margin, distance=self.distance, type_of_triplets="hard")
 
-        self.loss_func_classification = nn.BCELoss()
+        self.loss_func_classification = nn.BCELoss().to(self.device)
         
 
         #logging
@@ -347,8 +362,8 @@ class SiameseTrainerCombinedLoss():
             acc_unecual = torch.sum((pred_unequal >= 0.5))/len(pred_unequal)
 
             #loss
-            loss1 = self.loss_func_classification(pred_equal, torch.zeros(len(pred_equal)))
-            loss2 = self.loss_func_classification(pred_unequal, torch.ones(len(pred_unequal)))
+            loss1 = self.loss_func_classification(pred_equal, torch.zeros(len(pred_equal)).to(self.device))
+            loss2 = self.loss_func_classification(pred_unequal, torch.ones(len(pred_unequal)).to(self.device))
             loss_classification = 1/2*(loss1+loss2)
             
             #combine loss
@@ -363,6 +378,11 @@ class SiameseTrainerCombinedLoss():
             loss.backward()
             self.optimizer.step()
 
+            if step >= self.number_steps:
+                break
+
+        self.lr_scheduler.step()
+
         return {"loss": torch.tensor(history_loss).mean(), "acc": torch.tensor(history_acc).mean()}
 
     def test(self):
@@ -372,7 +392,7 @@ class SiameseTrainerCombinedLoss():
         history_acc = []
 
         #get mini batches
-        for step, (anchor, pos, neg, label) in enumerate(tqdm(self.test_loader, disable=not self.log)):
+        for step, (anchor, pos, neg, label) in enumerate(tqdm(self.test_loader, total=self.number_steps_testing, disable=not self.log)):
             anchor, pos, neg, label = anchor.to(self.device), pos.to(self.device), neg.to(self.device), label.to(self.device)
 
             #calculate embedding
@@ -395,8 +415,8 @@ class SiameseTrainerCombinedLoss():
             acc_unecual = torch.sum((pred_unequal >= 0.5))/len(pred_unequal)
 
             #loss calculation
-            loss1 = self.loss_func_classification(pred_equal, torch.zeros(len(pred_equal)))
-            loss2 = self.loss_func_classification(pred_unequal, torch.ones(len(pred_unequal)))
+            loss1 = self.loss_func_classification(pred_equal, torch.zeros(len(pred_equal)).to(self.device))
+            loss2 = self.loss_func_classification(pred_unequal, torch.ones(len(pred_unequal)).to(self.device))
             loss_classification = 1/2*(loss1+loss2)
 
             #combine loss
@@ -407,11 +427,15 @@ class SiameseTrainerCombinedLoss():
             history_acc.append(acc_unecual)
             history_loss.append(loss.data)
 
+            if step >= self.number_steps_testing:
+                break
+
         return {"loss": torch.tensor(history_loss).mean(), "acc": torch.tensor(history_acc).mean()}
     
     #the trainloop with the training and testing phase and tracking of the history
     def trainloop(self, epochs):
-        for epoch in range(1, epochs+1):
+        current_epoch = len(self.history)
+        for epoch in range(current_epoch+1, current_epoch+epochs+1):
             h_train = self.train()
             h_test = self.test()
             tmp = {"epoch":epoch, "train":h_train, "test":h_test}
@@ -469,26 +493,44 @@ class SiameseTrainerCombinationDataset():
         self.learning_rate = self.hyperparameters["learning_rate"]
         self.batch_size = self.hyperparameters["batch_size"]
         self.batch_size_test = self.hyperparameters["batch_size_test"]
+        self.lr_steps = self.hyperparameters["lr_steps"]
         self.wandb = self.hyperparameters["wandb"]
         self.log = self.hyperparameters["log"]
+        self.dataset_ignore_subject_train = self.hyperparameters["dataset_ignore_subject_train"]
+        self.dataset_ignore_subject_test = self.hyperparameters["dataset_ignore_subject_test"]
         self.filter = filter
         self.number_steps = self.hyperparameters["number_steps"]
+        self.number_steps_testing = self.hyperparameters["number_steps_testing"]
         self.weight_decay = self.hyperparameters["weight_decay"]
         if self.weight_decay is None:
             self.weight_decay = 0
 
 
         #data
-        self.train_dataset = SiameseDatasetCombinations(self.path, subjects=self.subjects_train, filter=self.filter)
+        if self.dataset_ignore_subject_train:
+            self.train_dataset = SiameseDatasetCombinationsIgnoredSampleSubject(self.path, subjects=self.subjects_train, filter=self.filter)
+        else:
+            self.train_dataset = SiameseDatasetCombinations(self.path, subjects=self.subjects_train, filter=self.filter)
+
+        if self.dataset_ignore_subject_test:
+            self.test_dataset = SiameseDatasetCombinationsIgnoredSampleSubject(self.path, subjects=self.subjects_test, filter=self.filter)
+        else:
+            self.test_dataset = SiameseDatasetCombinations(self.path, subjects=self.subjects_test, filter=self.filter)
+
+
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
-        self.test_dataset = SiameseDatasetCombinations(self.path, subjects=self.subjects_test, filter=self.filter)
-        self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size_test)
+        self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size_test, shuffle=True)
+
 
         if self.number_steps is None:
             self.number_steps = len(self.train_loader)
         else:
             self.number_steps = min(len(self.train_loader), self.number_steps)
 
+        if self.number_steps_testing is None:
+            self.number_steps_testing = len(self.test_loader)
+        else:
+            self.number_steps_testing = min(len(self.test_loader), self.number_steps_testing)
 
         #training loop
         self.loss_func = nn.BCELoss()
@@ -499,6 +541,7 @@ class SiameseTrainerCombinationDataset():
 
         #optimizer
         self.optimizer = optim.Adam(self.siamese_model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
+        self.lr_scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=self.lr_steps, gamma=0.5)
 
         #logging
         self.history = []
@@ -540,7 +583,7 @@ class SiameseTrainerCombinationDataset():
         history_acc = []
 
         #get mini batches
-        for step, (sample1, sample2, labels) in enumerate(tqdm(self.test_loader, disable=not self.log)):
+        for step, (sample1, sample2, labels) in enumerate(tqdm(self.test_loader, total=self.number_steps_testing, disable=not self.log)):
             sample1, sample2, labels = sample1.to(self.device), sample2.to(self.device), labels.to(self.device)
 
             #prediction            
@@ -556,11 +599,17 @@ class SiameseTrainerCombinationDataset():
             history_acc.append(acc)
             history_loss.append(loss.data)
 
+            if step >= self.number_steps_testing:
+                break
+
+        self.lr_scheduler.step()
+
         return {"loss": torch.tensor(history_loss).mean(), "acc": torch.tensor(history_acc).mean()}
 
     #training loop with logging
     def trainloop(self, epochs):
-        for epoch in range(1, epochs+1):
+        current_epoch = len(self.history)
+        for epoch in range(1+current_epoch, epochs+current_epoch+1):
             h_train = self.train()
             h_test = self.test()
             tmp = {"epoch":epoch, "train":h_train, "test":h_test}
