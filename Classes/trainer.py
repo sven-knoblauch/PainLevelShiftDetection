@@ -5,16 +5,20 @@ import pandas as pd
 import torch.optim as optim
 from sklearn.manifold import TSNE
 from sklearn.ensemble import RandomForestClassifier
+from sklearn import metrics
 import numpy as np
 import wandb
 from pytorch_metric_learning import distances, losses, miners, reducers, testers
 from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
+from sklearn.metrics import confusion_matrix
 
 import matplotlib.pyplot as plt
 import seaborn as sns
-sns.set_theme()
 
-from datasets import PainDataset, SiameseDatasetWithLabels, SiameseDatasetCombinations, SiameseDatasetWithLabelsIgnoredSampleSubject, SiameseDatasetCombinationsIgnoredSampleSubject
+from datasets import PainDataset, SiameseDatasetWithLabels, SiameseDatasetCombinations, SiameseDatasetWithLabelsIgnoredSampleSubject
+from datasets import SiameseDatasetCombinationsIgnoredSampleSubjectWithPainLevel, SiameseDatasetCombinationsIgnoredSampleSubject
+from datasets import SiameseDatasetCombinationsWithPainLevel
+
 from models import SiameseModel
 from tqdm import tqdm
 from IPython.display import clear_output
@@ -334,6 +338,7 @@ class SiameseTrainerCombinedLoss():
     def train(self):
         self.model_embedder.train()
         self.model_classifier.train()
+        self.siamese_model.train()
         history_loss = []
         history_acc = []
 
@@ -388,6 +393,7 @@ class SiameseTrainerCombinedLoss():
     def test(self):
         self.model_embedder.eval()
         self.model_classifier.eval()
+        self.siamese_model.eval()
         history_loss = []
         history_acc = []
 
@@ -494,13 +500,18 @@ class SiameseTrainerCombinationDataset():
         self.batch_size = self.hyperparameters["batch_size"]
         self.batch_size_test = self.hyperparameters["batch_size_test"]
         self.lr_steps = self.hyperparameters["lr_steps"]
+        self.adam = self.hyperparameters["adam"]
         self.wandb = self.hyperparameters["wandb"]
         self.log = self.hyperparameters["log"]
         self.dataset_ignore_subject_train = self.hyperparameters["dataset_ignore_subject_train"]
         self.dataset_ignore_subject_test = self.hyperparameters["dataset_ignore_subject_test"]
+        self.pain_levels =  self.hyperparameters["filter"]
+        self.pain_levels = self.pain_levels + [0]
+        self.pain_levels = np.sort(self.pain_levels)
         self.filter = filter
         self.number_steps = self.hyperparameters["number_steps"]
         self.number_steps_testing = self.hyperparameters["number_steps_testing"]
+        self.number_steps_histogramm = self.hyperparameters["number_steps_histogramm"]
         self.weight_decay = self.hyperparameters["weight_decay"]
         if self.weight_decay is None:
             self.weight_decay = 0
@@ -514,12 +525,15 @@ class SiameseTrainerCombinationDataset():
 
         if self.dataset_ignore_subject_test:
             self.test_dataset = SiameseDatasetCombinationsIgnoredSampleSubject(self.path, subjects=self.subjects_test, filter=self.filter)
+            self.test_dataset_with_pain_level = SiameseDatasetCombinationsIgnoredSampleSubjectWithPainLevel(self.path, subjects=self.subjects_test, filter=self.filter)
         else:
             self.test_dataset = SiameseDatasetCombinations(self.path, subjects=self.subjects_test, filter=self.filter)
+            self.test_dataset_with_pain_level = SiameseDatasetCombinationsWithPainLevel(self.path, subjects=self.subjects_test, filter=self.filter)
 
 
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
         self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size_test, shuffle=True)
+        self.test_loader_with_pain_level = DataLoader(self.test_dataset_with_pain_level, batch_size=self.batch_size_test, shuffle=True)
 
 
         if self.number_steps is None:
@@ -532,6 +546,11 @@ class SiameseTrainerCombinationDataset():
         else:
             self.number_steps_testing = min(len(self.test_loader), self.number_steps_testing)
 
+        if self.number_steps_histogramm is None:
+            self.number_steps_histogramm = len(self.test_loader_with_pain_level)
+        else:
+            self.number_steps_histogramm = min(len(self.test_loader_with_pain_level), self.number_steps_histogramm)
+
         #training loop
         self.loss_func = nn.BCELoss()
 
@@ -540,11 +559,16 @@ class SiameseTrainerCombinationDataset():
         self.siamese_model = siamese_model.to(self.device)
 
         #optimizer
-        self.optimizer = optim.Adam(self.siamese_model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
-        self.lr_scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=self.lr_steps, gamma=0.5)
+        if self.adam:
+            self.optimizer = optim.Adam(self.siamese_model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
+        else:
+            self.optimizer = optim.SGD(self.siamese_model.parameters(), lr=self.learning_rate, momentum=0.9)
+
+        self.lr_scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=self.lr_steps, gamma=0.2)
 
         #logging
         self.history = []
+        self.history_cm = []
 
     def train(self):
         self.siamese_model.train()
@@ -575,12 +599,14 @@ class SiameseTrainerCombinationDataset():
             if step >= self.number_steps:
                 break
 
-        return {"loss": torch.tensor(history_loss).mean(), "acc": torch.tensor(history_acc).mean()}
+        self.lr_scheduler.step()
+        return {"loss": torch.tensor(history_loss).mean().item(), "acc": torch.tensor(history_acc).mean().item()}
 
     def test(self):
         self.siamese_model.eval()
         history_loss = []
-        history_acc = []
+
+        CM=0
 
         #get mini batches
         for step, (sample1, sample2, labels) in enumerate(tqdm(self.test_loader, total=self.number_steps_testing, disable=not self.log)):
@@ -589,22 +615,22 @@ class SiameseTrainerCombinationDataset():
             #prediction            
             predictions = self.siamese_model(sample1, sample2).flatten()
             
-            #accuracy
-            acc = torch.sum((predictions >= 0.5) == labels)/len(labels)
-            
+            class_predictions = (predictions >= 0.5)
+
+            CM += confusion_matrix(labels.cpu(), class_predictions.cpu(), labels=[0,1])
+
             #loss
             loss = self.loss_func(predictions, labels)
             
             #log history
-            history_acc.append(acc)
             history_loss.append(loss.data)
 
             if step >= self.number_steps_testing:
                 break
 
-        self.lr_scheduler.step()
+        acc=np.sum(np.diag(CM)/np.sum(CM))
 
-        return {"loss": torch.tensor(history_loss).mean(), "acc": torch.tensor(history_acc).mean()}
+        return {"loss": torch.tensor(history_loss).mean().item(), "acc": acc, "cm": CM}
 
     #training loop with logging
     def trainloop(self, epochs):
@@ -612,22 +638,28 @@ class SiameseTrainerCombinationDataset():
         for epoch in range(1+current_epoch, epochs+current_epoch+1):
             h_train = self.train()
             h_test = self.test()
-            tmp = {"epoch":epoch, "train":h_train, "test":h_test}
+            tmp = {"epoch":epoch,
+                   "train_acc":np.round_(h_train["acc"], decimals=4),
+                   "train_loss":np.round_(h_train["loss"], decimals=4),
+                   "test_acc":np.round_(h_test["acc"], decimals=4),
+                   "test_loss":np.round_(h_test["loss"], decimals=4)}
             self.history.append(tmp)
+            self.history_cm.append({"epoch":epoch, "cm":h_test["cm"]})
             if self.log:
                 clear_output(wait=True)
                 for entry in self.history:
-                    print(entry)
+                    print("epoch:", entry["epoch"], "| train_acc:", entry["train_acc"], "| test_acc:", entry["test_acc"])
+
             if self.wandb:
                 wandb.log({"accuracy": h_test["acc"], "epoch": epoch})
 
     #plot history
     def plot_history(self):
         #get data for plotting
-        train_loss = [x["train"]["loss"] for x in self.history]
-        test_loss = [x["test"]["loss"] for x in self.history]
-        train_acc = [x["train"]["acc"] for x in self.history]
-        test_acc = [x["test"]["acc"] for x in self.history]
+        train_loss = [x["train_loss"] for x in self.history]
+        test_loss = [x["test_loss"] for x in self.history]
+        train_acc = [x["train_acc"] for x in self.history]
+        test_acc = [x["test_acc"] for x in self.history]
 
         #plot loss
         plt.plot(train_loss, label="train")
@@ -642,3 +674,86 @@ class SiameseTrainerCombinationDataset():
         plt.title("accuracy")
         plt.legend()
         plt.show()
+
+    def plot_cm(self, cm, normalize=True):
+        if normalize:
+            cm = cm/np.sum(cm, axis=1)
+        cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = cm, display_labels = ["same pain level", "different pain level"])
+        cm_display.plot(cmap="Blues", colorbar=False)
+        plt.title("Confusion Matrix", fontsize=16)
+        plt.grid(False)
+        plt.show()
+
+    def calculate_f_scores(self, cm):
+        tn = cm[0][0]
+        tp = cm[1][1]
+        fn = cm[1][0]
+        fp = cm[0][1]
+
+        precision=tp/(tp+fp)
+        recall=tp/(tp+fn)
+        f1=2*(precision*recall)/(precision+recall)
+
+        return {"recall": precision, "precision": recall, "f1": f1}
+
+    #positive means pain shift detected
+    def test_with_pain_levels(self):
+        self.siamese_model.eval()
+
+        tp_history = torch.tensor([]).to(self.device)
+        tn_history = torch.tensor([]).to(self.device)
+        fp_history = torch.tensor([]).to(self.device)
+        fn_history = torch.tensor([]).to(self.device)
+
+        #get mini batches
+        for step, (sample1, sample2, labels, painlvl1, painlvl2) in enumerate(tqdm(self.test_loader_with_pain_level, total=self.number_steps_histogramm, disable=not self.log)):
+            sample1, sample2, labels, painlvl1, painlvl2 = sample1.to(self.device), sample2.to(self.device), labels.to(self.device), painlvl1.to(self.device), painlvl2.to(self.device)
+
+            #prediction            
+            predictions = self.siamese_model(sample1, sample2).flatten()
+            
+            class_predictions = (predictions >= 0.5)
+
+            tmp1 = class_predictions == labels
+            tmp2 = ~tmp1
+            pos = (labels == 1)
+            neg = ~pos
+            tp = tmp1 & pos
+            tn = tmp1 & neg
+            fp = tmp2 & pos
+            fn = tmp2 & neg
+
+            tp_history = torch.cat([tp_history, painlvl1[tp], painlvl2[tp]])
+            tn_history = torch.cat([tn_history, painlvl1[tn], painlvl2[tn]])
+            fp_history = torch.cat([fp_history, painlvl1[fp], painlvl2[fp]])
+            fn_history = torch.cat([fn_history, painlvl1[fn], painlvl2[fn]])
+
+            if step >= self.number_steps_histogramm:
+                break
+
+        return {"tp": tp_history.cpu(), "tn": tn_history.cpu(), "fp": fp_history.cpu(), "fn": fn_history.cpu()}
+
+
+    def display_histograms(self):
+        #get data
+        data = self.test_with_pain_levels()
+
+        #calculate histogramms
+        hist_tp = torch.histc(data["tp"], bins=len(self.pain_levels), min=min(self.pain_levels), max=max(self.pain_levels)).numpy()
+        hist_tn = torch.histc(data["tn"], bins=len(self.pain_levels), min=min(self.pain_levels), max=max(self.pain_levels)).numpy()
+        hist_fp = torch.histc(data["fp"], bins=len(self.pain_levels), min=min(self.pain_levels), max=max(self.pain_levels)).numpy()
+        hist_fn = torch.histc(data["fn"], bins=len(self.pain_levels), min=min(self.pain_levels), max=max(self.pain_levels)).numpy()
+        histogramms = list(map(list, zip(hist_tp, hist_tn, hist_fp, hist_fn)))
+
+        #plot results
+        fig, axes = plt.subplots(5, 3, figsize=(15, 12), tight_layout=True)
+        fig.subplots_adjust(hspace=0.6, wspace=0.6)
+        fig.suptitle('Histograms', fontsize=16)
+
+        for ax, feature, name in zip(axes.flatten(), histogramms, self.pain_levels):
+            ax.bar([1,2,3,4], feature, edgecolor='#000000')
+            ax.set_xticks([1,2,3,4], ["tp", "tn", "fp", "fn"])
+            ax.set(title="class "+str(name))
+
+        for axe in axes.flatten()[len(self.pain_levels):]:
+            axe.remove()
