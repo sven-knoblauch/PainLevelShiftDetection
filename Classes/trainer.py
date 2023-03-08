@@ -677,7 +677,11 @@ class SiameseTrainerCombinationDataset():
 
     def plot_cm(self, cm, normalize=True):
         if normalize:
-            cm = cm/np.sum(cm, axis=1)
+            s = np.sum(cm, axis=1)
+            cm = cm.astype('float64')
+            cm[0] = cm[0]/s[0]
+            cm[1] = cm[1]/s[1]
+
         cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = cm, display_labels = ["same pain level", "different pain level"])
         cm_display.plot(cmap="Blues", colorbar=False)
         plt.title("Confusion Matrix", fontsize=16)
