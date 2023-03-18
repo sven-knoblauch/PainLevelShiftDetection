@@ -653,6 +653,12 @@ class SiameseTrainerCombinationDataset():
             if self.wandb:
                 wandb.log({"accuracy": h_test["acc"], "epoch": epoch})
 
+    def trainloop_no_testing(self, epochs):
+        for epoch in tqdm(range(epochs)):
+            tmp = self.train()
+            clear_output(wait=True)
+        print(tmp["acc"])
+
     #plot history
     def plot_history(self):
         #get data for plotting
