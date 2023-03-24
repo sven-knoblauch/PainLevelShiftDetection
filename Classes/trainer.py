@@ -767,3 +767,80 @@ class SiameseTrainerCombinationDataset():
 
         for axe in axes.flatten()[len(self.pain_levels):]:
             axe.remove()
+
+
+
+
+
+
+class siameseNetworkEnsemble():
+    def __init__(self, hyperparameters, siamese_models):
+
+        #hyperparameters
+        self.hyperparameters = hyperparameters
+        self.subjects_test = self.hyperparameters["subjects_test"]
+        self.batch_size_test = self.hyperparameters["batch_size_test"]
+        self.number_steps_testing = self.hyperparameters["number_steps_testing"]
+        self.device = self.hyperparameters["device"]
+        self.device = torch.device(self.device)
+        self.path = self.hyperparameters["path"]
+        self.siamese_models = siamese_models
+
+        #dataset
+        self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size_test, shuffle=True)
+        self.test_dataset = SiameseDatasetCombinations(self.path, subjects=self.subjects_test, filter=None)
+        if self.number_steps_testing is None:
+            self.number_steps_testing = len(self.test_loader)
+
+        #training loop
+        self.loss_func = nn.BCELoss()
+
+    def test(self):
+        self.siamese_model.eval()
+        history_loss = []
+
+        CM=0
+
+        #get mini batches
+        for step, (sample1, sample2, labels) in enumerate(tqdm(self.test_loader, total=self.number_steps_testing)):
+            sample1, sample2, labels = sample1.to(self.device), sample2.to(self.device), labels.to(self.device)
+
+            #prediction            
+            predictions = self.siamese_model(sample1, sample2).flatten()
+
+
+
+            #todo majority rule etc
+
+
+
+
+            
+            class_predictions = (predictions >= 0.5)
+
+            CM += confusion_matrix(labels.cpu(), class_predictions.cpu(), labels=[0,1])
+
+            #loss
+            loss = self.loss_func(predictions, labels)
+            
+            #log history
+            history_loss.append(loss.data)
+
+            if step >= self.number_steps_testing:
+                break
+
+        acc=np.sum(np.diag(CM)/np.sum(CM))
+
+        return {"loss": torch.tensor(history_loss).mean().item(), "acc": acc, "cm": CM}
+
+
+
+
+
+
+
+
+
+
+
+
