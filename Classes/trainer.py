@@ -769,10 +769,11 @@ class SiameseTrainerCombinationDataset():
             axe.remove()
 
 
-
-
-
-
+# #
+#
+# ensemble of multiple siamese models to make ensemble prediciton for the intense dataset with multiple different trained siamese models
+#
+# # 
 class siameseNetworkEnsemble():
     def __init__(self, hyperparameters, siamese_models):
 
