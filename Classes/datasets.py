@@ -1,6 +1,7 @@
 import pandas as pd
 from torch.utils.data import Dataset
 import torch
+import numpy as np
 from itertools import combinations
 
 
@@ -338,7 +339,7 @@ class SiameseDatasetCombinationsIgnoredSampleSubjectWithPainLevel(Dataset):
 # #
 # 
 # Dataset for generating the data for training the random forest
-# 
+#
 # #
 class CombinationDataset(Dataset):
     def __init__(self, path, subjects=["S001"], filter=None):
@@ -383,3 +384,106 @@ class CombinationDataset(Dataset):
         label = torch.tensor(1-(label1==label2), dtype=torch.float32)
 
         return sample1, sample2, label1, label2, label
+
+
+
+
+
+# #
+#
+#  Datasets for Three class problem
+#  
+#   1 => pain + no pain
+#   0 => pain + pain or no pain + no pain
+#  -1 => no pain + pain
+#
+# #
+class SiameseDatasetThreeClass(Dataset):
+    def __init__(self, path, subjects=["S001"], filter=None, ignore_sample_subject=True):
+        self.path = path
+        #read data from file
+        self.data = pd.read_pickle(path)
+        self.subjects = subjects
+        self.ignore_sample_subject = ignore_sample_subject
+        #remove all dara which are not from the wanted subject list
+        self.data = self.data[self.data["subject"].isin(self.subjects)].reset_index(drop=True)
+        #filter data for example for only electric pain stimuli
+        if filter:
+            self.data = self.data[filter(self.data)]
+        self.n = len(self.data)
+
+    def __len__(self):
+        return self.n*4
+
+    def __getitem__(self, idx):
+        idx = idx % self.n
+        #sample a datapoint and load his pain label
+        sample1 = self.data.iloc[[idx]].reset_index(drop=True)
+        label1 = sample1["pain"][0]
+
+        if self.ignore_sample_subject:
+            sample2 = self.data.sample()
+        else:
+            #load data from same subject   
+            subj = sample1["subject"][0]
+            subj_data = self.data[self.data["subject"]==subj]
+            sample2 = subj_data.sample()
+
+        #get second label
+        label2 = sample2["pain"].values[0]
+
+        #convert to torch tensors and remove all columns, which arent features
+        sample1 = torch.tensor(sample1.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32)[0]
+        sample2 = torch.tensor(sample2.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32)[0]
+
+        # return the correct label for positive and negative sample
+        label = torch.tensor((label1-label2), dtype=torch.float32)
+        return sample1, sample2, label
+
+
+
+
+class SiameseDatasetIntenseThreeClass(Dataset):
+    def __init__(self, subjects=["1"], datapairs_nopain_to_pain=False):
+        #read data from file
+        self.data = pd.read_pickle("D:\Workspace\workspace_masterarbeit\PainLevelShiftDetection\FeatureGeneration\dataset_processed\INTENSE2\\normalized_subjects.pkl")
+        self.subjects = subjects
+        self.datapairs_nopain_to_pain = datapairs_nopain_to_pain
+        #remove all data which are not from the wanted subject list
+        self.data = self.data[self.data["subject"].isin(self.subjects)].reset_index(drop=True)
+        
+        self.indices = []
+        for x in range(len(self.data)//3):
+            self.indices.append(np.array([1,0])+x*3)
+            self.indices.append(np.array([1,2])+x*3)
+        self.indices = [(x[0], x[1]) for x in self.indices]
+
+        if datapairs_nopain_to_pain:
+            self.missing_indices = []
+            for x in range(len(self.data)//3):
+                self.missing_indices.append(np.array([2,2])+x*3)
+                self.missing_indices.append(np.array([2,1])+x*3)
+            self.missing_indices = [(x[0], x[1]) for x in self.missing_indices]
+            self.indices.extend(self.missing_indices)
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        indices = self.indices[idx]
+
+        #load both samples
+        sample1 = self.data.iloc[[indices[0]]].reset_index(drop=True)
+        sample2 = self.data.iloc[[indices[1]]].reset_index(drop=True)
+
+        #get the labels
+        label1 = sample1["pain"][0]
+        label2 = sample2["pain"][0]
+
+        #convert to torch tensors and remove all columns, which arent features
+        sample1 = torch.tensor(sample1.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32)[0]
+        sample2 = torch.tensor(sample2.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32)[0]
+
+        # return the correct label for positive and negative sample
+        label = torch.tensor((label1-label2), dtype=torch.float32)
+        return sample1, sample2, label

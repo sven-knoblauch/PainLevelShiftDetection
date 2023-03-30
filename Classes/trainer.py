@@ -18,6 +18,7 @@ import seaborn as sns
 from datasets import PainDataset, SiameseDatasetWithLabels, SiameseDatasetCombinations, SiameseDatasetWithLabelsIgnoredSampleSubject
 from datasets import SiameseDatasetCombinationsIgnoredSampleSubjectWithPainLevel, SiameseDatasetCombinationsIgnoredSampleSubject
 from datasets import SiameseDatasetCombinationsWithPainLevel
+from datasets import SiameseDatasetThreeClass, SiameseDatasetIntenseThreeClass
 
 from models import SiameseModel
 from tqdm import tqdm
@@ -769,79 +770,80 @@ class SiameseTrainerCombinationDataset():
             axe.remove()
 
 
-# #
+# # #
 #
-# ensemble of multiple siamese models to make ensemble prediciton for the intense dataset with multiple different trained siamese models
+# Trainer for siamese network for three class prediction
 #
-# # 
-class siameseNetworkEnsemble():
-    def __init__(self, hyperparameters, siamese_models):
-
-        #hyperparameters
+# # #
+class SiameseTrainerThreeClass():
+    def __init__(self, hyperparameters, siamese_model, device="cpu", filter=None):
         self.hyperparameters = hyperparameters
-        self.subjects_test = self.hyperparameters["subjects_test"]
-        self.batch_size_test = self.hyperparameters["batch_size_test"]
-        self.number_steps_testing = self.hyperparameters["number_steps_testing"]
-        self.device = self.hyperparameters["device"]
-        self.device = torch.device(self.device)
+        
+        #parameters
         self.path = self.hyperparameters["path"]
-        self.siamese_models = siamese_models
+        self.subjects_train = self.hyperparameters["subjects_train"]
+        self.subjects_test = self.hyperparameters["subjects_test"]
+        self.learning_rate = self.hyperparameters["learning_rate"]
+        self.batch_size = self.hyperparameters["batch_size"]
+        self.batch_size_test = self.hyperparameters["batch_size_test"]
+        self.number_steps = self.hyperparameters["number_steps"]
+        self.log = self.hyperparameters["log"]
+        self.lr_steps = self.hyperparameters["lr_steps"]
+        self.filter = filter
+        self.adam = self.hyperparameters["adam"]
+        self.weight_decay = self.hyperparameters["weight_decay"]
+        if self.weight_decay is None:
+            self.weight_decay = 0
 
-        #dataset
+        self.train_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_train, filter=self.filter, ignore_sample_subject=True)
+        self.test_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_test, filter=self.filter, ignore_sample_subject=False)
+        self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
         self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size_test, shuffle=True)
-        self.test_dataset = SiameseDatasetCombinations(self.path, subjects=self.subjects_test, filter=None)
-        if self.number_steps_testing is None:
-            self.number_steps_testing = len(self.test_loader)
 
         #training loop
-        self.loss_func = nn.BCELoss()
+        #self.loss_func = nn.BCELoss()
+        self.loss_func = nn.NLLLoss()
 
-    def test(self):
-        self.siamese_model.eval()
-        history_loss = []
+        #model
+        self.device = torch.device(device)
+        self.siamese_model = siamese_model.to(self.device)
 
-        CM=0
+        #optimizer
+        self.optimizer = optim.Adam(self.siamese_model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
+        self.lr_scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=self.lr_steps, gamma=0.2)
 
-        #get mini batches
-        for step, (sample1, sample2, labels) in enumerate(tqdm(self.test_loader, total=self.number_steps_testing)):
+
+    def train(self):
+        self.siamese_model.train()
+        
+        CM = 0
+
+        for step, (sample1, sample2, labels) in enumerate(tqdm(self.train_loader, total=self.number_steps, disable=not self.log)):
             sample1, sample2, labels = sample1.to(self.device), sample2.to(self.device), labels.to(self.device)
+            self.optimizer.zero_grad()
+
+            labels = labels+1
+            labels = labels.type(torch.LongTensor)
+            labels = labels.to(self.device)
 
             #prediction            
-            predictions = self.siamese_model(sample1, sample2).flatten()
-
-
-
-            #todo majority rule etc
-
-
-
-
+            predictions = self.siamese_model(sample1, sample2)
             
-            class_predictions = (predictions >= 0.5)
+            
+            class_predictions = torch.argmax(predictions, dim=1)
 
-            CM += confusion_matrix(labels.cpu(), class_predictions.cpu(), labels=[0,1])
+            CM += confusion_matrix(labels.cpu(), class_predictions.cpu(), labels=[0,1,2])
 
             #loss
             loss = self.loss_func(predictions, labels)
             
-            #log history
-            history_loss.append(loss.data)
+            #backpropagation
+            loss.backward()
+            self.optimizer.step()
 
-            if step >= self.number_steps_testing:
+            if step >= self.number_steps:
                 break
 
-        acc=np.sum(np.diag(CM)/np.sum(CM))
-
-        return {"loss": torch.tensor(history_loss).mean().item(), "acc": acc, "cm": CM}
-
-
-
-
-
-
-
-
-
-
-
-
+        self.lr_scheduler.step()
+        
+        return({"acc": acc, "loss": loss, "cm": CM})

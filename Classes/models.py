@@ -44,6 +44,7 @@ class ClassificationModel(nn.Module):
         self.model_hyperparameter = model_hyperparameter
         self.dropout = self.model_hyperparameter["dropout"]
         self.layers = self.model_hyperparameter["layers"]
+        self.head_type = self.model_hyperparameter["head_type"]
 
         self.classification_model = torch.nn.Sequential()
         for idx in range(len(self.layers)-1):    
@@ -52,8 +53,15 @@ class ClassificationModel(nn.Module):
             self.classification_model.add_module("relu_"+str(idx), nn.ReLU())
             self.classification_model.add_module("dropout_"+str(idx), nn.Dropout(self.dropout))
             
-        self.classification_model.add_module("linear_output", nn.Linear(self.layers[-1], 1))
-        self.classification_model.add_module("sigmoid_activation", nn.Sigmoid())
+        if self.head_type == 0:
+            self.classification_model.add_module("linear_output", nn.Linear(self.layers[-1], 1))
+            self.classification_model.add_module("sigmoid_activation", nn.Sigmoid())
+        elif self.head_type == 1:
+            self.classification_model.add_module("linear_output", nn.Linear(self.layers[-1], 1))
+            self.classification_model.add_module("sigmoid_activation", nn.Tanh())
+        else:
+            self.classification_model.add_module("linear_output", nn.Linear(self.layers[-1], 3))
+            self.classification_model.add_module("sigmoid_activation", nn.LogSoftmax(dim=1))
 
     def forward(self, x):
         return self.classification_model(x)
@@ -79,9 +87,11 @@ class SiameseModel(nn.Module):
         elif self.decision_function == 1:
             self.d = torch.nn.PairwiseDistance(p=2)
             self.distance = lambda a,b : self.d(a,b).unsqueeze(1)
-        else:
+        elif self.decision_function == 2:
             self.distance = lambda a,b : torch.nn.functional.cosine_similarity(a, b, dim=1, eps=1e-08).unsqueeze(1)
-            
+        else:
+            self.distance = lambda a,b : torch.sub(a, b)
+
 
     def forward(self, a, b):
         a = self.embedding_model(a)

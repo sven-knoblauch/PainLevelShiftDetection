@@ -32,7 +32,7 @@ class DatasetTimeFrameGeneratorINTENSE:
 
     #generate features with the timestamps of the drug inducing
     def generate_features(self):
-        starts = self.timestamps-10*self.fs
+        starts = self.timestamps-10*self.fs-5*60*self.fs
         ends = self.timestamps+5*60*self.fs+10*self.fs
 
         ecg_features = pd.DataFrame([])
@@ -55,7 +55,7 @@ class DatasetTimeFrameGeneratorINTENSE:
                 continue
             
         ecg_features["subject"] = self.subject.split("_")[0]
-        ecg_features["pain"] = (ecg_features["Event_Onset"]<10).astype(int)
+        ecg_features["pain"] = (ecg_features["Event_Onset"]<320).astype(int)
         ecg_features = ecg_features.drop(["Event_Onset"], axis=1)
         return pd.concat([ecg_features.reset_index(drop=True), eda_features.reset_index(drop=True), zyg_features.reset_index(drop=True), cor_features.reset_index(drop=True)], axis=1)
 
@@ -63,7 +63,7 @@ class DatasetTimeFrameGeneratorINTENSE:
     def generate_emg_features(self, emg, name="emg_"):
         #prepare data
         processed = nk.emg_process(emg, sampling_rate=self.fs)
-        epochs = nk.epochs_create(data=processed, events = [5, 10+5*60], sampling_rate = self.fs, epochs_start = 0, epochs_end = 5)
+        epochs = nk.epochs_create(data=processed, events = [5, 10+5*60, 10+10*60], sampling_rate = self.fs, epochs_start = 0, epochs_end = 5)
 
         emg_features_clean = self.calculate_statistical_features(epochs, name=name+"_clean_", key="EMG_Clean")
         emg_features_amplitude = self.calculate_statistical_features(epochs, name=name+"_amplitude_", key="EMG_Amplitude")
@@ -74,7 +74,7 @@ class DatasetTimeFrameGeneratorINTENSE:
     def generate_eda_features(self, eda):
         #prepare data
         processed = nk.eda_process(eda, sampling_rate=self.fs)
-        epochs = nk.epochs_create(data=processed, events = [5, 10+5*60], sampling_rate = self.fs, epochs_start = 0, epochs_end = 5)
+        epochs = nk.epochs_create(data=processed, events = [5, 10+5*60, 10+10*60], sampling_rate = self.fs, epochs_start = 0, epochs_end = 5)
         #geenrate features of tonic, phasic and clean signal
         eda_features_tonic = self.calculate_statistical_features(epochs, name="eda_tonic_", key="EDA_Tonic")
         eda_features_phasic = self.calculate_statistical_features(epochs, name="eda_phasic_", key="EDA_Phasic")
@@ -88,7 +88,7 @@ class DatasetTimeFrameGeneratorINTENSE:
     def generate_ecg_features(self, ecg):
         #prepare data
         processed = nk.ecg_process(ecg, sampling_rate=self.fs)
-        epochs = nk.epochs_create(data=processed, events = [5, 10+5*60], sampling_rate = self.fs, epochs_start = 0, epochs_end = 5)
+        epochs = nk.epochs_create(data=processed, events = [5, 10+5*60, 10+10*60], sampling_rate = self.fs, epochs_start = 0, epochs_end = 5)
         
         #calculate features
         ecg_features_hr = self.calculate_statistical_features(epochs, name="ecg_hr_", key="ECG_Rate")
