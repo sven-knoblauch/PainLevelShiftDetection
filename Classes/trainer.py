@@ -780,23 +780,33 @@ class SiameseTrainerThreeClass():
         self.hyperparameters = hyperparameters
         
         #parameters
-        self.path = self.hyperparameters["path"]
         self.subjects_train = self.hyperparameters["subjects_train"]
         self.subjects_test = self.hyperparameters["subjects_test"]
         self.learning_rate = self.hyperparameters["learning_rate"]
+        self.path = self.hyperparameters["path"]
         self.batch_size = self.hyperparameters["batch_size"]
         self.batch_size_test = self.hyperparameters["batch_size_test"]
         self.number_steps = self.hyperparameters["number_steps"]
+        self.number_steps_testing = self.hyperparameters["number_steps_testing"]
+        self.intense_dataset = self.hyperparameters["intense_dataset"]
+        self.indices1_test = self.hyperparameters["indices1_test"]
+        self.indices2_test = self.hyperparameters["indices2_test"]
+        self.indices1_train = self.hyperparameters["indices1_train"]
+        self.indices2_train = self.hyperparameters["indices2_train"]
         self.log = self.hyperparameters["log"]
         self.lr_steps = self.hyperparameters["lr_steps"]
         self.filter = filter
-        self.adam = self.hyperparameters["adam"]
         self.weight_decay = self.hyperparameters["weight_decay"]
         if self.weight_decay is None:
             self.weight_decay = 0
 
-        self.train_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_train, filter=self.filter, ignore_sample_subject=True)
-        self.test_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_test, filter=self.filter, ignore_sample_subject=False)
+        if self.intense_dataset:
+            self.train_dataset = SiameseDatasetIntenseThreeClass(subjects=self.subjects_train, indices1 = self.indices1_train, indices2 = self.indices2_train)
+            self.test_dataset = SiameseDatasetIntenseThreeClass(subjects=self.subjects_test, indices1 = self.indices1_test, indices2 = self.indices2_test)
+        else:
+            self.train_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_train, filter=self.filter, ignore_sample_subject=True)
+            self.test_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_test, filter=self.filter, ignore_sample_subject=False)
+
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
         self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size_test, shuffle=True)
 
@@ -812,11 +822,25 @@ class SiameseTrainerThreeClass():
         self.optimizer = optim.Adam(self.siamese_model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
         self.lr_scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=self.lr_steps, gamma=0.2)
 
+        #logging
+        self.history = []
+        self.history_cm = []
+
+        if self.number_steps is None:
+            self.number_steps = len(self.train_loader)
+        else:
+            self.number_steps = min(len(self.train_loader), self.number_steps)
+
+        if self.number_steps_testing is None:
+            self.number_steps_testing = len(self.test_loader)
+        else:
+            self.number_steps_testing = min(len(self.test_loader), self.number_steps_testing)
 
     def train(self):
         self.siamese_model.train()
         
         CM = 0
+        history_loss = []
 
         for step, (sample1, sample2, labels) in enumerate(tqdm(self.train_loader, total=self.number_steps, disable=not self.log)):
             sample1, sample2, labels = sample1.to(self.device), sample2.to(self.device), labels.to(self.device)
@@ -829,14 +853,14 @@ class SiameseTrainerThreeClass():
             #prediction            
             predictions = self.siamese_model(sample1, sample2)
             
-            
             class_predictions = torch.argmax(predictions, dim=1)
 
             CM += confusion_matrix(labels.cpu(), class_predictions.cpu(), labels=[0,1,2])
 
             #loss
             loss = self.loss_func(predictions, labels)
-            
+            history_loss.append(loss)
+
             #backpropagation
             loss.backward()
             self.optimizer.step()
@@ -845,5 +869,94 @@ class SiameseTrainerThreeClass():
                 break
 
         self.lr_scheduler.step()
+
+        return({"acc": np.sum(np.diag(CM)/np.sum(CM)), "loss": torch.tensor(history_loss).mean().item(), "cm": CM})
+
+
+    def test(self):
+        self.siamese_model.eval()
         
-        return({"acc": acc, "loss": loss, "cm": CM})
+        CM = 0
+        history_loss = []
+
+        for step, (sample1, sample2, labels) in enumerate(tqdm(self.test_loader, total=self.number_steps_testing, disable=not self.log)):
+            sample1, sample2, labels = sample1.to(self.device), sample2.to(self.device), labels.to(self.device)
+            self.optimizer.zero_grad()
+
+            labels = labels+1
+            labels = labels.type(torch.LongTensor)
+            labels = labels.to(self.device)
+
+            #prediction            
+            predictions = self.siamese_model(sample1, sample2)
+            
+            class_predictions = torch.argmax(predictions, dim=1)
+
+            CM += confusion_matrix(labels.cpu(), class_predictions.cpu(), labels=[0,1,2])
+
+            #loss
+            loss = self.loss_func(predictions, labels)
+            history_loss.append(loss)
+
+            if step >= self.number_steps_testing:
+                break
+
+        return({"acc": np.sum(np.diag(CM)/np.sum(CM)), "loss": torch.tensor(history_loss).mean().item(), "cm": CM})
+
+
+    def trainloop(self, epochs):
+        current_epoch = len(self.history)
+        for epoch in range(1+current_epoch, epochs+current_epoch+1):
+            h_train = self.train()
+            h_test = self.test()
+            tmp = {"epoch":epoch,
+                   "train_acc":np.round_(h_train["acc"], decimals=4),
+                   "train_loss":np.round_(h_train["loss"], decimals=4),
+                   "test_acc":np.round_(h_test["acc"], decimals=4),
+                   "test_loss":np.round_(h_test["loss"], decimals=4)}
+            self.history.append(tmp)
+            self.history_cm.append({"epoch":epoch, "cm":h_test["cm"]})
+            if self.log:
+                clear_output(wait=True)
+                for entry in self.history:
+                    print("epoch:", entry["epoch"], "| train_acc:", entry["train_acc"], "| test_acc:", entry["test_acc"])
+
+    #plot history
+    def plot_history(self):
+        #get data for plotting
+        train_loss = [x["train_loss"] for x in self.history]
+        test_loss = [x["test_loss"] for x in self.history]
+        train_acc = [x["train_acc"] for x in self.history]
+        test_acc = [x["test_acc"] for x in self.history]
+
+        #plot loss
+        plt.plot(train_loss, label="train")
+        plt.plot(test_loss, label="test")
+        plt.title("loss")
+        plt.legend()
+        plt.show()
+
+        #plot accuracy
+        plt.plot(train_acc, label="train")
+        plt.plot(test_acc, label="test")
+        plt.title("accuracy")
+        plt.legend()
+        plt.show()
+
+    #plot cm
+    def plot_cm(self, normalize=True):
+
+        best_epoch = max(self.history, key=lambda x:x['test_acc'])["epoch"]
+        cm = self.history_cm[best_epoch-1]["cm"].copy()
+        
+        s = np.sum(cm, axis=1)
+        cm = cm.astype('float64')
+        cm[0] = cm[0]/s[0]
+        cm[1] = cm[1]/s[1]
+        cm[2] = cm[2]/s[2]
+
+        cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = cm, display_labels = ["no pain to pain", "same pain", "pain to no pain"])
+        cm_display.plot(cmap="Blues", colorbar=False)
+        plt.title("Confusion Matrix", fontsize=16)
+        plt.grid(False)
+        plt.show()

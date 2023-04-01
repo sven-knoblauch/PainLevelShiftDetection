@@ -444,11 +444,10 @@ class SiameseDatasetThreeClass(Dataset):
 
 
 class SiameseDatasetIntenseThreeClass(Dataset):
-    def __init__(self, subjects=["1"], datapairs_nopain_to_pain=False):
+    def __init__(self, subjects=["1"], indices1=1, indices2=0):
         #read data from file
         self.data = pd.read_pickle("D:\Workspace\workspace_masterarbeit\PainLevelShiftDetection\FeatureGeneration\dataset_processed\INTENSE2\\normalized_subjects.pkl")
         self.subjects = subjects
-        self.datapairs_nopain_to_pain = datapairs_nopain_to_pain
         #remove all data which are not from the wanted subject list
         self.data = self.data[self.data["subject"].isin(self.subjects)].reset_index(drop=True)
         
@@ -458,13 +457,14 @@ class SiameseDatasetIntenseThreeClass(Dataset):
             self.indices.append(np.array([1,2])+x*3)
         self.indices = [(x[0], x[1]) for x in self.indices]
 
-        if datapairs_nopain_to_pain:
-            self.missing_indices = []
-            for x in range(len(self.data)//3):
-                self.missing_indices.append(np.array([2,2])+x*3)
-                self.missing_indices.append(np.array([2,1])+x*3)
-            self.missing_indices = [(x[0], x[1]) for x in self.missing_indices]
-            self.indices.extend(self.missing_indices)
+        self.missing_indices = []
+        for x in range(len(self.data)//3):
+            self.missing_indices.append(np.array([2,2])+x*3)
+            self.missing_indices.append(np.array([2,1])+x*3)
+        self.missing_indices = [(x[0], x[1]) for x in self.missing_indices]
+
+        self.indices = indices1*self.indices + indices2*self.missing_indices
+
 
     def __len__(self):
         return len(self.indices)
