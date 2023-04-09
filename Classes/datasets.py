@@ -399,12 +399,13 @@ class CombinationDataset(Dataset):
 #
 # #
 class SiameseDatasetThreeClass(Dataset):
-    def __init__(self, path, subjects=["S001"], filter=None, ignore_sample_subject=True):
+    def __init__(self, path, subjects=["S001"], filter=None, ignore_sample_subject=True, use_classlevels=True):
         self.path = path
         #read data from file
         self.data = pd.read_pickle(path)
         self.subjects = subjects
         self.ignore_sample_subject = ignore_sample_subject
+        self.use_classlevels = use_classlevels
         #remove all dara which are not from the wanted subject list
         self.data = self.data[self.data["subject"].isin(self.subjects)].reset_index(drop=True)
         #filter data for example for only electric pain stimuli
@@ -437,17 +438,22 @@ class SiameseDatasetThreeClass(Dataset):
         sample2 = torch.tensor(sample2.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32)[0]
 
         # return the correct label for positive and negative sample
-        label = torch.tensor((label1-label2), dtype=torch.float32)
+        if self.use_classlevels:
+            label = torch.tensor((label1-label2+1), dtype=torch.float32).type(torch.LongTensor)
+        else:
+            label = torch.tensor((label1-label2), dtype=torch.float32)
+
         return sample1, sample2, label
 
 
 
 
 class SiameseDatasetIntenseThreeClass(Dataset):
-    def __init__(self, subjects=["1"], indices1=1, indices2=0):
+    def __init__(self, subjects=["1"], indices1=1, indices2=0, use_classlevels=True):
         #read data from file
         self.data = pd.read_pickle("D:\Workspace\workspace_masterarbeit\PainLevelShiftDetection\FeatureGeneration\dataset_processed\INTENSE2\\normalized_subjects.pkl")
         self.subjects = subjects
+        self.use_classlevels = use_classlevels
         #remove all data which are not from the wanted subject list
         self.data = self.data[self.data["subject"].isin(self.subjects)].reset_index(drop=True)
         
@@ -485,5 +491,8 @@ class SiameseDatasetIntenseThreeClass(Dataset):
         sample2 = torch.tensor(sample2.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32)[0]
 
         # return the correct label for positive and negative sample
-        label = torch.tensor((label1-label2), dtype=torch.float32)
+        if self.use_classlevels:
+            label = torch.tensor((label1-label2+1), dtype=torch.float32).type(torch.LongTensor)
+        else:
+            label = torch.tensor((label1-label2), dtype=torch.float32)
         return sample1, sample2, label
