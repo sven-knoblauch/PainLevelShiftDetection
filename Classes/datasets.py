@@ -414,10 +414,9 @@ class SiameseDatasetThreeClass(Dataset):
         self.n = len(self.data)
 
     def __len__(self):
-        return self.n*4
+        return self.n
 
     def __getitem__(self, idx):
-        idx = idx % self.n
         #sample a datapoint and load his pain label
         sample1 = self.data.iloc[[idx]].reset_index(drop=True)
         label1 = sample1["pain"][0]
@@ -447,7 +446,13 @@ class SiameseDatasetThreeClass(Dataset):
 
 
 
-
+# #
+#  
+#   1 => pain + no pain
+#   0 => pain + pain or no pain + no pain
+#  -1 => no pain + pain
+#
+# #
 class SiameseDatasetIntenseThreeClass(Dataset):
     def __init__(self, subjects=["1"], indices1=1, indices2=0, use_classlevels=True):
         #read data from file
@@ -456,13 +461,15 @@ class SiameseDatasetIntenseThreeClass(Dataset):
         self.use_classlevels = use_classlevels
         #remove all data which are not from the wanted subject list
         self.data = self.data[self.data["subject"].isin(self.subjects)].reset_index(drop=True)
-        
+
+        #indices which are tested with intense dataset problem
         self.indices = []
         for x in range(len(self.data)//3):
             self.indices.append(np.array([1,0])+x*3)
             self.indices.append(np.array([1,2])+x*3)
         self.indices = [(x[0], x[1]) for x in self.indices]
 
+        #indices not needed for testing
         self.missing_indices = []
         for x in range(len(self.data)//3):
             self.missing_indices.append(np.array([2,2])+x*3)
@@ -496,3 +503,51 @@ class SiameseDatasetIntenseThreeClass(Dataset):
         else:
             label = torch.tensor((label1-label2), dtype=torch.float32)
         return sample1, sample2, label
+
+
+
+#
+#
+#  Datasets for Three class problem for xite, only 2 class sampling
+#  used for pretraining 3 class problem with only 2 data pair samples
+#
+class SiameseDatasetThreeClass2(Dataset):
+    def __init__(self, path, subjects=["S001"], filter=None, ignore_sample_subject=True, use_classlevels=True):
+        self.path = path
+        #read data from file
+        self.data = pd.read_pickle(path)
+        self.subjects = subjects
+        self.ignore_sample_subject = ignore_sample_subject
+        self.use_classlevels = use_classlevels
+        #remove all dara which are not from the wanted subject list
+        self.data = self.data[self.data["subject"].isin(self.subjects)].reset_index(drop=True)
+        #filter data for example for only electric pain stimuli
+        if filter:
+            self.data = self.data[filter(self.data)]
+        self.n = len(self.data)
+
+    def __len__(self):
+        return self.n
+
+    def __getitem__(self, idx):
+        #sample a datapoint and load his pain label
+        sample1 = self.data.iloc[[idx]].reset_index(drop=True)
+        label1 = sample1["pain"][0]
+
+        #get pain sample
+        sample2 = self.data[self.data["pain"]==1].sample()
+
+        #get second label
+        label2 = sample2["pain"].values[0]
+
+        #convert to torch tensors and remove all columns, which arent features
+        sample1 = torch.tensor(sample1.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32)[0]
+        sample2 = torch.tensor(sample2.drop(["pain", "subject", "label"], axis=1, errors='ignore').values, dtype=torch.float32)[0]
+
+        # return the correct label for positive and negative sample
+        if self.use_classlevels:
+            label = torch.tensor((label2-label1+1), dtype=torch.float32).type(torch.LongTensor)
+        else:
+            label = torch.tensor((label2-label1), dtype=torch.float32)
+
+        return sample2, sample1, label

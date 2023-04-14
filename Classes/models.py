@@ -15,6 +15,7 @@ class EmbeddingsModel(nn.Module):
         self.dropout = self.model_hyperparameter["dropout"]
         self.layers = self.model_hyperparameter["layers"]
 
+        #set layers according to hyperparameters
         self.embedding_model = torch.nn.Sequential()
         for idx in range(len(self.layers)-2):    
             self.embedding_model.add_module("linear_"+str(idx), nn.Linear(self.layers[idx], self.layers[idx+1]))
@@ -24,6 +25,7 @@ class EmbeddingsModel(nn.Module):
             
         self.embedding_model.add_module("linear_output", nn.Linear(self.layers[-2], self.layers[-1]))
 
+        #set activation function at the end
         if self.sigmoid:
             self.activation = nn.Sigmoid()
         else:
@@ -46,13 +48,15 @@ class ClassificationModel(nn.Module):
         self.layers = self.model_hyperparameter["layers"]
         self.head_type = self.model_hyperparameter["head_type"]
 
+        #set layers according to hyperparameters
         self.classification_model = torch.nn.Sequential()
         for idx in range(len(self.layers)-1):    
             self.classification_model.add_module("linear_"+str(idx), nn.Linear(self.layers[idx], self.layers[idx+1]))
             self.classification_model.add_module("batchnorm1d_"+str(idx), nn.BatchNorm1d(self.layers[idx+1]))
             self.classification_model.add_module("relu_"+str(idx), nn.ReLU())
             self.classification_model.add_module("dropout_"+str(idx), nn.Dropout(self.dropout))
-            
+        
+        #set classification head type for classification type or regression
         if self.head_type == 0:
             self.classification_model.add_module("linear_output", nn.Linear(self.layers[-1], 1))
             self.classification_model.add_module("sigmoid_activation", nn.Sigmoid())

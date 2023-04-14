@@ -536,7 +536,7 @@ class SiameseTrainerCombinationDataset():
         self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size_test, shuffle=True)
         self.test_loader_with_pain_level = DataLoader(self.test_dataset_with_pain_level, batch_size=self.batch_size_test, shuffle=True)
 
-
+        #set number epoch steps
         if self.number_steps is None:
             self.number_steps = len(self.train_loader)
         else:
@@ -723,8 +723,10 @@ class SiameseTrainerCombinationDataset():
             #prediction            
             predictions = self.siamese_model(sample1, sample2).flatten()
             
+            #calculate predictions
             class_predictions = (predictions >= 0.5)
 
+            #caclulate confusion matrix entries
             tmp1 = class_predictions == labels
             tmp2 = ~tmp1
             pos = (labels == 1)
@@ -802,6 +804,7 @@ class SiameseTrainerThreeClass():
         if self.weight_decay is None:
             self.weight_decay = 0
 
+        #set correct datasets
         if self.intense_dataset_train:
             self.train_dataset = SiameseDatasetIntenseThreeClass(subjects=self.subjects_train, indices1 = self.indices1_train, indices2 = self.indices2_train, use_classlevels=not self.use_regression)
         else:
@@ -834,6 +837,7 @@ class SiameseTrainerThreeClass():
         self.history = []
         self.history_cm = []
 
+        #set number of steps per epoch
         if self.number_steps is None:
             self.number_steps = len(self.train_loader)
         else:
@@ -845,7 +849,7 @@ class SiameseTrainerThreeClass():
             self.number_steps_testing = min(len(self.test_loader), self.number_steps_testing)
 
 
-        #accuracy calculation
+        #accuracy calculation, depending on regression or classifiaction
         if self.use_regression:
             self.accuracy_calculation = lambda x: torch.round(x).detach()
             self.cm_calculation = lambda x,y: confusion_matrix(x.cpu(), y.cpu(), labels=[-1,0,1])
@@ -869,7 +873,7 @@ class SiameseTrainerThreeClass():
             predictions = self.siamese_model(sample1, sample2)
             class_predictions = self.accuracy_calculation(predictions)
             
-
+            #calculate confusion matrix
             CM += self.cm_calculation(labels, class_predictions)
 
 
@@ -888,7 +892,7 @@ class SiameseTrainerThreeClass():
 
         return({"acc": np.sum(np.diag(CM)/np.sum(CM)), "loss": torch.tensor(history_loss).mean().item(), "cm": CM})
 
-
+    #testing model
     def test(self):
         self.siamese_model.eval()
         
@@ -903,6 +907,7 @@ class SiameseTrainerThreeClass():
             predictions = self.siamese_model(sample1, sample2)
             class_predictions = self.accuracy_calculation(predictions)
             
+            #calculate confusion matrix
             CM += self.cm_calculation(labels, class_predictions)
 
             #loss
@@ -914,7 +919,7 @@ class SiameseTrainerThreeClass():
 
         return({"acc": np.sum(np.diag(CM)/np.sum(CM)), "loss": torch.tensor(history_loss).mean().item(), "cm": CM})
 
-
+    #tainloop with training and testing and logging results
     def trainloop(self, epochs):
         current_epoch = len(self.history)
         for epoch in tqdm(range(1+current_epoch, epochs+current_epoch+1)):
@@ -956,10 +961,10 @@ class SiameseTrainerThreeClass():
 
     #plot cm
     def plot_cm(self, normalize=True):
-
         best_epoch = max(self.history, key=lambda x:x['test_acc'])["epoch"]
         cm = self.history_cm[best_epoch-1]["cm"].copy()
-        
+
+        #normalize confusion matrix
         if normalize:
             s = np.sum(cm, axis=1)
             cm = cm.astype('float64')
@@ -967,6 +972,7 @@ class SiameseTrainerThreeClass():
             cm[1] = cm[1]/s[1]
             cm[2] = cm[2]/s[2]
 
+        #display confusion matrix
         cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = cm, display_labels = ["no pain to pain", "same pain", "pain to no pain"])
         cm_display.plot(cmap="Blues", colorbar=False)
         plt.title("Confusion Matrix", fontsize=16)
