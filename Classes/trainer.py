@@ -18,7 +18,7 @@ import seaborn as sns
 from datasets import PainDataset, SiameseDatasetWithLabels, SiameseDatasetCombinations, SiameseDatasetWithLabelsIgnoredSampleSubject
 from datasets import SiameseDatasetCombinationsIgnoredSampleSubjectWithPainLevel, SiameseDatasetCombinationsIgnoredSampleSubject
 from datasets import SiameseDatasetCombinationsWithPainLevel
-from datasets import SiameseDatasetThreeClass, SiameseDatasetIntenseThreeClass
+from datasets import SiameseDatasetThreeClass, SiameseDatasetThreeClass2, SiameseDatasetIntenseThreeClass
 
 from models import SiameseModel
 from tqdm import tqdm
@@ -797,6 +797,8 @@ class SiameseTrainerThreeClass():
         self.indices1_train = self.hyperparameters["indices1_train"]
         self.indices2_train = self.hyperparameters["indices2_train"]
         self.use_regression = self.hyperparameters["use_regression"]
+        self.xite_2class_test = self.hyperparameters["xite_2class_test"]
+        self.xite_2class_train = self.hyperparameters["xite_2class_train"]
         self.log = self.hyperparameters["log"]
         self.lr_steps = self.hyperparameters["lr_steps"]
         self.filter = filter
@@ -808,12 +810,18 @@ class SiameseTrainerThreeClass():
         if self.intense_dataset_train:
             self.train_dataset = SiameseDatasetIntenseThreeClass(subjects=self.subjects_train, indices1 = self.indices1_train, indices2 = self.indices2_train, use_classlevels=not self.use_regression)
         else:
-            self.train_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_train, filter=self.filter, ignore_sample_subject=True)
+            if self.xite_2class_train:
+                self.train_dataset = SiameseDatasetThreeClass2(self.path, subjects=self.subjects_train, filter=self.filter, ignore_sample_subject=True)
+            else:
+                self.train_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_train, filter=self.filter, ignore_sample_subject=True)
             
         if self.intense_dataset_test:
             self.test_dataset = SiameseDatasetIntenseThreeClass(subjects=self.subjects_test, indices1 = self.indices1_test, indices2 = self.indices2_test, use_classlevels=not self.use_regression)
         else:
-            self.test_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_test, filter=self.filter, ignore_sample_subject=False)
+            if self.xite_2class_test:
+                self.test_dataset = SiameseDatasetThreeClass2(self.path, subjects=self.subjects_test, filter=self.filter, ignore_sample_subject=False)
+            else:
+                self.test_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_test, filter=self.filter, ignore_sample_subject=False)
 
 
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
