@@ -62,10 +62,10 @@ class ClassificationModel(nn.Module):
             self.classification_model.add_module("sigmoid_activation", nn.Sigmoid())
         elif self.head_type == 1:
             self.classification_model.add_module("linear_output", nn.Linear(self.layers[-1], 1))
-            self.classification_model.add_module("sigmoid_activation", nn.Tanh())
+            self.classification_model.add_module("tanh_activation", nn.Tanh())
         else:
             self.classification_model.add_module("linear_output", nn.Linear(self.layers[-1], 3))
-            self.classification_model.add_module("sigmoid_activation", nn.LogSoftmax(dim=1))
+            self.classification_model.add_module("logsoftmax_activation", nn.LogSoftmax(dim=1))
 
     def forward(self, x):
         return self.classification_model(x)

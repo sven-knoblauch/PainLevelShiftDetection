@@ -472,7 +472,7 @@ class SiameseDatasetIntenseThreeClass(Dataset):
         #indices not needed for testing
         self.missing_indices = []
         for x in range(len(self.data)//3):
-            self.missing_indices.append(np.array([2,2])+x*3)
+            #self.missing_indices.append(np.array([2,2])+x*3)
             self.missing_indices.append(np.array([2,1])+x*3)
         self.missing_indices = [(x[0], x[1]) for x in self.missing_indices]
 

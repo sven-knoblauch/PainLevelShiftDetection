@@ -772,6 +772,15 @@ class SiameseTrainerCombinationDataset():
             axe.remove()
 
 
+
+
+#function to calculate class from prediction for regression model
+def classify(x, device):
+    threshold = 0.33
+    classes = torch.tensor([-1, 0, 1]).to(device)
+    indices = torch.bucketize(x, boundaries=torch.tensor([-threshold, threshold]).to(device))
+    return classes[indices]
+
 # # #
 #
 # Trainer for siamese network for three class prediction
@@ -811,17 +820,17 @@ class SiameseTrainerThreeClass():
             self.train_dataset = SiameseDatasetIntenseThreeClass(subjects=self.subjects_train, indices1 = self.indices1_train, indices2 = self.indices2_train, use_classlevels=not self.use_regression)
         else:
             if self.xite_2class_train:
-                self.train_dataset = SiameseDatasetThreeClass2(self.path, subjects=self.subjects_train, filter=self.filter, ignore_sample_subject=True)
+                self.train_dataset = SiameseDatasetThreeClass2(self.path, subjects=self.subjects_train, filter=self.filter, ignore_sample_subject=True, use_classlevels=not self.use_regression)
             else:
-                self.train_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_train, filter=self.filter, ignore_sample_subject=True)
+                self.train_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_train, filter=self.filter, ignore_sample_subject=True, use_classlevels=not self.use_regression)
             
         if self.intense_dataset_test:
             self.test_dataset = SiameseDatasetIntenseThreeClass(subjects=self.subjects_test, indices1 = self.indices1_test, indices2 = self.indices2_test, use_classlevels=not self.use_regression)
         else:
             if self.xite_2class_test:
-                self.test_dataset = SiameseDatasetThreeClass2(self.path, subjects=self.subjects_test, filter=self.filter, ignore_sample_subject=False)
+                self.test_dataset = SiameseDatasetThreeClass2(self.path, subjects=self.subjects_test, filter=self.filter, ignore_sample_subject=False, use_classlevels=not self.use_regression)
             else:
-                self.test_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_test, filter=self.filter, ignore_sample_subject=False)
+                self.test_dataset = SiameseDatasetThreeClass(self.path, subjects=self.subjects_test, filter=self.filter, ignore_sample_subject=False, use_classlevels=not self.use_regression)
 
 
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
@@ -859,7 +868,8 @@ class SiameseTrainerThreeClass():
 
         #accuracy calculation, depending on regression or classifiaction
         if self.use_regression:
-            self.accuracy_calculation = lambda x: torch.round(x).detach()
+            #self.accuracy_calculation = lambda x: torch.round(x).detach()
+            self.accuracy_calculation = lambda x: classify(x, self.device).detach()
             self.cm_calculation = lambda x,y: confusion_matrix(x.cpu(), y.cpu(), labels=[-1,0,1])
         else:
             self.accuracy_calculation = lambda x: torch.argmax(x, dim=1)
