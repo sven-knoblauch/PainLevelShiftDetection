@@ -776,7 +776,7 @@ class SiameseTrainerCombinationDataset():
 
 #function to calculate class from prediction for regression model
 def classify(x, device):
-    threshold = 0.33
+    threshold = 0.1
     classes = torch.tensor([-1, 0, 1]).to(device)
     indices = torch.bucketize(x, boundaries=torch.tensor([-threshold, threshold]).to(device))
     return classes[indices]
@@ -887,7 +887,7 @@ class SiameseTrainerThreeClass():
             sample1, sample2, labels = sample1.to(self.device), sample2.to(self.device), labels.to(self.device)
             self.optimizer.zero_grad()
 
-            #prediction            
+            #prediction
             predictions = self.siamese_model(sample1, sample2)
             class_predictions = self.accuracy_calculation(predictions)
             
@@ -907,7 +907,7 @@ class SiameseTrainerThreeClass():
                 break
 
         self.lr_scheduler.step()
-
+        
         return({"acc": np.sum(np.diag(CM)/np.sum(CM)), "loss": torch.tensor(history_loss).mean().item(), "cm": CM})
 
     #testing model
@@ -924,7 +924,7 @@ class SiameseTrainerThreeClass():
             #prediction            
             predictions = self.siamese_model(sample1, sample2)
             class_predictions = self.accuracy_calculation(predictions)
-            
+
             #calculate confusion matrix
             CM += self.cm_calculation(labels, class_predictions)
 
@@ -934,7 +934,7 @@ class SiameseTrainerThreeClass():
 
             if step >= self.number_steps_testing:
                 break
-
+        
         return({"acc": np.sum(np.diag(CM)/np.sum(CM)), "loss": torch.tensor(history_loss).mean().item(), "cm": CM})
 
     #tainloop with training and testing and logging results
